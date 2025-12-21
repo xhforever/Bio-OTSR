@@ -1,0 +1,14 @@
+# @package _global_
+
+DATASETS:
+  DATASETS_AND_RATIOS: 'insta-1_insta-2_mpii-train_coco-train_aic_h36m-train_mpi-inf-train'
+  VAL_DATASETS: spec-test-smpl_3dpw-smpl_emdb-smpl
+  EXTRA_DATASETS: moyo
+
+data_configs:
+  eval:
+      datasets:
+      - name: H36M-VAL-P2
+        item: ${hub.eval.h36m_val_p2}
+      - name: COCO-VAL
+        item: ${hub.eval.coco_val}

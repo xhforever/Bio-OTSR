@@ -1,0 +1,5 @@
+*.ipynb
+**/__pycache__/**
+/detectron2/
+/datasetprocessor/
+.vscode
