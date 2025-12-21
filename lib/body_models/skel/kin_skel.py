@@ -204,3 +204,39 @@ scaling_keypoints ={
                 5906   #r_middle finger end
             ),
     }
+
+# [在 kin_skel.py 文件末尾追加]
+
+# Bio-OTSR 关节类型定义
+# 索引对应 pose_param_names 中的位置 (0-45)
+# 关节索引对应 skel_joints_name (0-23)
+BIO_OTSR_CONFIG = {
+    # Type A (球窝): 需要预测 Swing (XYZ) 和 Twist (Ortho向量)
+    # 格式: 'JointName': {'child': 子关节ID, 'parent': 父关节ID, 'params': [欧拉角参数索引列表]}
+    'TYPE_A': {
+        'femur_r':   {'child': 2,  'parent': 1,  'params': [3, 4, 5]},   # Hip R
+        'femur_l':   {'child': 7,  'parent': 6,  'params': [10, 11, 12]}, # Hip L
+        'humerus_r': {'child': 16, 'parent': 15, 'params': [29, 30, 31]}, # Shoulder R
+        'humerus_l': {'child': 21, 'parent': 20, 'params': [39, 40, 41]}  # Shoulder L
+    },
+    
+    # Type B (铰链): 需要预测标量 + 物理限制
+    # 格式: 'JointName': {'param': 参数索引, 'limit': [min, max]}
+    'TYPE_B': {
+        'knee_r':    {'param': 6,  'limit': [0, 2.6]},  # 膝关节只能弯曲
+        'knee_l':    {'param': 13, 'limit': [0, 2.6]},
+        'elbow_r':   {'param': 32, 'limit': [0, 2.6]},
+        'elbow_l':   {'param': 42, 'limit': [0, 2.6]},
+        # ... 可继续添加踝关节等
+    },
+
+    # Type C (枢轴): 仅预测 Twist
+    # 格式: 'JointName': {'param': 参数索引, 'axis_def': [参考轴向量]}
+    'TYPE_C': {
+        'radius_r': {'param': 33}, # 前臂旋转
+        'radius_l': {'param': 43}
+    },
+
+    # Type D (参数化): 直接回归标量 (骨盆、脊柱等)
+    'TYPE_D_INDICES': [0, 1, 2, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 34, 35, 36, 37, 38, 44, 45]
+}

@@ -190,16 +190,44 @@ class SKELViT(nn.Module):
         }
 
         return total_predict
-    
 
     def forward(self, batch):
         img_patch = batch['img']  # (B, C, H, W)
 
-        outputs, cam_int = self.forward_step(img_patch, batch)  # {...}
-        predict_enc = self.get_pd_params(outputs['pd_enc_poses'], outputs['pd_enc_betas'], outputs['pd_enc_cam'], batch, cam_int)
-        predict_dec = self.get_pd_params(outputs['pd_dec_poses'], outputs['pd_dec_betas'], outputs['pd_dec_cam'], batch, cam_int)   
-        per_layer_params = outputs['per_layer_params']
+        # 1. 前向传播 (Backbone + Transformer + BioOTSR Solver)
+        # outputs 字典现在包含了 'raw_kp3d', 'raw_ortho' 等中间特征
+        outputs, cam_int = self.forward_step(img_patch, batch)  
+
+        # 2. 获取 Encoder 阶段的预测 (可选，视训练策略而定)
+        predict_enc = self.get_pd_params(
+            outputs['pd_enc_poses'], 
+            outputs['pd_enc_betas'], 
+            outputs['pd_enc_cam'], 
+            batch, cam_int
+        )
         
+        # 3. 获取 Decoder 阶段的预测 (Bio-OTSR 最终解算结果)
+        # get_pd_params 会调用 SKEL Layer 生成 Mesh (用于 L_vert)
+        predict_dec = self.get_pd_params(
+            outputs['pd_dec_poses'], 
+            outputs['pd_dec_betas'], 
+            outputs['pd_dec_cam'], 
+            batch, cam_int
+        )   
+        
+        # --- [NEW] 关键修改：注入 Bio-OTSR 中间几何特征 ---
+        # 将 Decoder 产生的几何预测值复制到最终输出字典中，以便 Loss 函数访问
+        if 'raw_kp3d' in outputs:
+            predict_dec['raw_kp3d'] = outputs['raw_kp3d']       # Swing: (B, 24, 3)
+        
+        if 'raw_ortho' in outputs:
+            predict_dec['raw_ortho'] = outputs['raw_ortho']     # Twist: (B, 6, 3)
+            
+        if 'raw_scalar' in outputs:
+            predict_dec['raw_scalar'] = outputs['raw_scalar']   # Params: (B, 32)
+        # ---------------------------------------------------
+
+        per_layer_params = outputs['per_layer_params']
         
         return predict_enc, predict_dec, per_layer_params
 
