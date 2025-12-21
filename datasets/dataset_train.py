@@ -12,6 +12,7 @@ from .configs import DATASET_FOLDERS, DATASET_FILES
 from .constants import NUM_JOINTS, NUM_BETAS, NUM_PARAMS_SMPL
 from .utils import expand_to_aspect_ratio, get_example
 from torchvision.transforms import Normalize
+from lib.body_models.skel.kin_skel import BIO_OTSR_CONFIG
 
 logger = get_pylogger(__name__)
 
@@ -166,6 +167,41 @@ class DatasetTrainAllLabels(Dataset):
             '_trans' : trans
         })
 
+        # ================= [新增 Bio-OTSR Scalar GT 逻辑] =================
+        skel_pose_vec = self.skel_poses[index] # (46,)
+
+        # 1. 提取 Type D (参数化关节)
+        # 直接取值
+        type_d_indices = BIO_OTSR_CONFIG['TYPE_D_INDICES']
+        scalar_vals_d = skel_pose_vec[type_d_indices]
+
+        # 2. 提取 Type B (铰链关节)
+        # 注意: 如果 Config 中定义了 limit 归一化，这里最好保持原始角度，
+        # 让 Loss 负责归一化，或者在这里归一化。通常建议传原始值，在 Loss 中处理。
+        # 这里演示直接提取原始值。
+        type_b_vals = []
+        # 注意：dict 遍历顺序在不同 python 版本可能不同，建议把 TYPE_B 改为 List 结构或排好序
+        # 假设 TYPE_B 是 {'knee_r': {'param': 6...}, ...}
+        # 为了保证顺序一致，建议在 Config 中定义一个有序列表，或者这里按 param index 排序
+        # 简便起见，我们假设 kin_skel.py 中您会维护一个有序列表 TYPE_B_LIST
+        # 这里我们手动按 param index 排序提取，确保与 Decoder 输出顺序一致
+        
+        # 临时排序逻辑 (建议完善 kin_skel 的定义)
+        type_b_items = sorted(BIO_OTSR_CONFIG['TYPE_B'].items(), key=lambda x: x[1]['param'])
+        for name, info in type_b_items:
+            idx = info['param']
+            # 可选: 归一化到 [-1, 1] 
+            # limit = info['limit']
+            # val = 2 * (skel_pose_vec[idx] - limit[0]) / (limit[1] - limit[0]) - 1
+            val = skel_pose_vec[idx] # 暂时取原始值
+            type_b_vals.append(val)
+        
+        scalar_vals_b = np.array(type_b_vals, dtype=np.float32)
+
+        # 拼接 (顺序必须与 Decoder 的 scalar_decoder 输出一致: 先 Type D 后 Type B，或反之)
+        # 假设 Decoder 设计是: [Type D indices..., Type B indices...]
+        item['scalar_gt'] = np.concatenate([scalar_vals_d, scalar_vals_b]).astype(np.float32)
+        # ==================================================================
         return item
 
     def __len__(self):

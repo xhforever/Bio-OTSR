@@ -12,7 +12,8 @@ from body_models.skel_utils.transforms import params_q2rep
 from body_models.skel_wrapper import SKELWrapper
 from datasets.constants import SMPL_MODEL_DIR
 from run_hsmr_test import eval_pipeline, get_data
-from util.geometry import rotation_6d_to_matrix
+# [Modified] 增加 pose_params_to_rot 引用
+from util.geometry import rotation_6d_to_matrix, pose_params_to_rot
 import util.misc as utils
 from util.pylogger import get_pylogger
 from smplx import SMPL
@@ -20,9 +21,39 @@ import torch.distributed as dist
 from torch import nn
 import torch.nn.functional as F
 
+# [Modified] 引入 Bio-OTSR 配置
+from lib.body_models.skel.kin_skel import BIO_OTSR_CONFIG
 
 logger = get_pylogger(__name__)
 
+# [Modified] SKEL 骨骼父子关系定义 (用于前向运动学)
+# 索引对应 kin_skel.py 中的 skel_joints_name
+SKEL_PARENTS = [
+    -1, # 0: pelvis
+    0,  # 1: femur_r
+    1,  # 2: tibia_r
+    2,  # 3: talus_r
+    3,  # 4: calcn_r
+    4,  # 5: toes_r
+    0,  # 6: femur_l
+    7,  # 7: tibia_l
+    8,  # 8: talus_l
+    9,  # 9: calcn_l
+    10, # 10: toes_l
+    0,  # 11: lumbar_body
+    11, # 12: thorax
+    12, # 13: head
+    12, # 14: scapula_r
+    14, # 15: humerus_r
+    15, # 16: ulna_r
+    16, # 17: radius_r
+    17, # 18: hand_r
+    12, # 19: scapula_l
+    19, # 20: humerus_l
+    20, # 21: ulna_l
+    21, # 22: radius_l
+    22, # 23: hand_l
+]
 
 def to_device(obj, device):
   
@@ -41,7 +72,7 @@ def to_device(obj, device):
 def compute_aux_loss(per_layer_params, targets):
 
     assert per_layer_params is not None and targets is not None, "per_layer_params and targets are required"
-    B = targets['poses'].shape[0]
+    # B = targets['poses'].shape[0] # unused
     loss = 0.
     
     gt_poses = params_q2rep(targets['poses']).reshape(-1, 24, 6)
@@ -76,6 +107,77 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
         img = batch['img']
         B = img.shape[0]
 
+        # ================= [Bio-OTSR: Real-time GT Calculation] =================
+        with torch.no_grad():
+            # 1. 提取 Scalar GT (Type D & Type B)
+            skel_poses = batch['skel_poses'] # (B, 46)
+            
+            # Type D (直接参数)
+            scalar_gt_list = [skel_poses[:, idx] for idx in BIO_OTSR_CONFIG['TYPE_D_INDICES']]
+            
+            # Type B (铰链参数)
+            # 注意：需按 param index 排序以匹配 Decoder 输出顺序
+            type_b_sorted = sorted(BIO_OTSR_CONFIG['TYPE_B'].items(), key=lambda x: x[1]['param'])
+            for _, info in type_b_sorted:
+                scalar_gt_list.append(skel_poses[:, info['param']])
+            
+            # 堆叠 scalar_gt (B, N_scalar)
+            batch['scalar_gt'] = torch.stack(scalar_gt_list, dim=1)
+
+            # 2. 计算 Ortho GT (Type A & Type C)
+            # 需要先计算全局旋转矩阵 (FK)
+            # 将 46维 pose 转为 24个 3x3 局部旋转矩阵
+            rot_mats_local, _ = pose_params_to_rot(skel_poses) # (B, 24, 3, 3)
+            
+            # 执行 FK 计算全局旋转
+            rot_mats_global = [None] * 24
+            # 根节点 (Pelvis)
+            rot_mats_global[0] = rot_mats_local[:, 0]
+            
+            # 遍历计算子节点
+            for i in range(1, 24):
+                parent_idx = SKEL_PARENTS[i]
+                rot_mats_global[i] = torch.matmul(rot_mats_global[parent_idx], rot_mats_local[:, i])
+            
+            # 堆叠得到全局旋转 (B, 24, 3, 3)
+            global_rots = torch.stack(rot_mats_global, dim=1)
+            
+            ortho_vecs = []
+            
+            # 处理 Type A (Twist 向量)
+            # 假设 Twist 轴为局部 Y 轴 [0, 1, 0] (根据 kin_skel 定义)
+            twist_axis = torch.tensor([0., 1., 0.], device=device).view(1, 3, 1)
+            
+            # 注意：字典遍历顺序需固定，建议按 child index 排序
+            # 这里简单处理，需确保 Decoder 也是按此顺序输出
+            # 最好在 Decoder 和这里都对 keys 进行排序
+            sorted_type_a = sorted(BIO_OTSR_CONFIG['TYPE_A'].items(), key=lambda x: x[0]) # 按关节名排序
+            
+            for _, info in sorted_type_a:
+                joint_idx = info['child'] # 取子骨骼的全局旋转
+                R = global_rots[:, joint_idx] # (B, 3, 3)
+                # 计算全局 Twist 向量: R_global @ [0,1,0]
+                vec = torch.matmul(R, twist_axis).squeeze(-1) # (B, 3)
+                ortho_vecs.append(vec)
+                
+            # 处理 Type C (同理)
+            sorted_type_c = sorted(BIO_OTSR_CONFIG['TYPE_C'].items(), key=lambda x: x[0])
+            for _, info in sorted_type_c:
+                # Type C 的 Twist 定义可能需要根据具体关节调整，这里假设也是跟随某个关节的 Y 轴
+                # 对于前臂旋转 (radius), 参数 param: 33/43. 
+                # 这里简化处理，假设需要 radius 关节的 Y 轴
+                joint_name = _ 
+                # 根据名字找索引 (kin_skel 中定义的顺序)
+                # 'radius_r': 17, 'radius_l': 22
+                j_idx = 17 if 'radius_r' in joint_name else 22
+                R = global_rots[:, j_idx]
+                vec = torch.matmul(R, twist_axis).squeeze(-1)
+                ortho_vecs.append(vec)
+
+            if ortho_vecs:
+                batch['ortho_gt'] = torch.stack(ortho_vecs, dim=1) # (B, N_Ortho, 3)
+        # ========================================================================
+
         optimizer.zero_grad()
         with torch.autocast(device_type='cuda'):
             predict_enc, predict_dec, per_layer_params = model(batch)         
@@ -93,6 +195,10 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
                 'betas': predict_dec['pd_skel_params']['betas'], # (B, 10)
                 'poses': predict_dec['pd_skel_params']['poses'], # (B, 46)
                 'global_orient': predict_dec['pd_skel_params']['poses'][:, :3],  # (B, 3)
+                # [Modified] 将中间几何特征传给 Loss
+                'raw_kp3d': predict_dec.get('raw_kp3d', None),
+                'raw_ortho': predict_dec.get('raw_ortho', None),
+                'raw_scalar': predict_dec.get('raw_scalar', None)
             }
 
             targets = {
@@ -101,6 +207,9 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
                 'betas': batch['skel_betas'],  # (B, 10)
                 'poses': batch['skel_poses'],  # (B, 46)
                 'global_orient': batch['skel_poses'][:, :3],  # (B, 3)
+                # [Modified] 传递 GT
+                'ortho_gt': batch.get('ortho_gt', None),
+                'scalar_gt': batch.get('scalar_gt', None)
             }
             # using half-mixed precision Loss calculation
        
@@ -117,36 +226,51 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
             losses_enc = sum(loss_enc_dict[k] * weight_dict[k] for k in loss_enc_dict.keys() if k in weight_dict)
             losses_dec = sum(loss_dec_dict[k] * weight_dict[k] for k in loss_dec_dict.keys() if k in weight_dict)
             
+            # [Modified] 加上 Bio-OTSR 的新 Loss
+            # 注意: 如果新 Loss (loss_swing, loss_twist) 不在 cfg.loss_weights 中定义，它们可能默认为 0 或者需要在此处显式相加
+            # 建议在 config/train.yaml 中添加 w_swing, w_twist 等，或者 criterion 已经处理了权重
+            # 如果 criterion 已经乘过权重 (如 HPE_Loss 代码所示)，这里直接 sum 字典所有值即可
+            
+            # 检查 loss_dec_dict 是否包含了新 loss
+            # HPE_Loss 返回的 loss_swing 等已经乘过权重了，但上面的列表推导式只取了在 weight_dict 中的 key
+            # 为了确保新 Loss 被加入，我们需要把新 key 加入 weight_dict 或者单独处理
+            
+            extra_keys = ['loss_swing', 'loss_twist', 'loss_scalar']
+            losses_bio = sum(loss_dec_dict[k] for k in extra_keys if k in loss_dec_dict)
+            
+            # 更新 Total Loss
             if cfg.misc.aux_loss_weight:
-                total_loss = cfg.trainer.lamda * losses_enc + cfg.misc.aux_loss_weight * loss_layer + losses_dec
+                total_loss = cfg.trainer.lamda * losses_enc + cfg.misc.aux_loss_weight * loss_layer + losses_dec + losses_bio
             else:
-                total_loss = cfg.trainer.lamda * losses_enc + losses_dec
+                total_loss = cfg.trainer.lamda * losses_enc + losses_dec + losses_bio
 
         # reduce losses over all GPUs for logging purposes
         loss_enc_dict_reduced = utils.reduce_dict(loss_enc_dict)
-        loss_enc_dict_reduced_scaled = {k: (v * weight_dict[k]).item()
+        loss_enc_dict_reduced_scaled = {k: (v * weight_dict.get(k, 1.0)).item() # default weight 1.0 for new keys
                                     for k, v in loss_enc_dict_reduced.items() if k in weight_dict}
         
         loss_dec_dict_reduced = utils.reduce_dict(loss_dec_dict)
-        loss_dec_dict_reduced_scaled = {k: (v * weight_dict[k]).item()
-                                    for k, v in loss_dec_dict_reduced.items() if k in weight_dict}
+        loss_dec_dict_reduced_scaled = {k: (v * weight_dict.get(k, 1.0)).item() 
+                                    for k, v in loss_dec_dict_reduced.items() if k in weight_dict or k in extra_keys}
        
         scaler.scale(total_loss).backward()
         
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.module.get_trainable_parameters(), max_norm=1.0)
+        # Handle model.module for DDP
+        _model = model.module if hasattr(model, 'module') else model
+        torch.nn.utils.clip_grad_norm_(_model.get_trainable_parameters(), max_norm=1.0)
         
         scaler.step(optimizer)
         scaler.update()
         
         lr_scheduler.step()
-        ema_model.update(model.module)
+        ema_model.update(_model)
         
         if (iter % print_freq == 0 or iter == len(data_loader) - 1) and utils.get_rank() == 0:
             
             checkpoint_path = Path(cfg.output_dir) / 'checkpoints/last_step.pth'
             utils.save_on_master({
-                'model': model.module.state_dict(),
+                'model': _model.state_dict(),
                 'ema_model': ema_model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
