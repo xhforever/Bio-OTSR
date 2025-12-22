@@ -36,10 +36,10 @@ SKEL_PARENTS = [
     3,  # 4: calcn_r
     4,  # 5: toes_r
     0,  # 6: femur_l
-    7,  # 7: tibia_l
-    8,  # 8: talus_l
-    9,  # 9: calcn_l
-    10, # 10: toes_l
+    6,  # 7: tibia_l (parent: femur_l)
+    7,  # 8: talus_l (parent: tibia_l)
+    8,  # 9: calcn_l (parent: talus_l)
+    9,  # 10: toes_l (parent: calcn_l)
     0,  # 11: lumbar_body
     11, # 12: thorax
     12, # 13: head

@@ -52,6 +52,30 @@ def main(cfg):
 
     ema_model = EmaModel(cfg, model_without_ddp)
 
+    # ================= [新增: 加载预训练权重逻辑] =================
+    if cfg.get('pretrained_ckpt', None):
+        checkpoint_path = cfg.pretrained_ckpt
+        if os.path.exists(checkpoint_path):
+            logger.info(f"Loading pretrained checkpoint from {checkpoint_path}")
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            
+            # 加载模型权重
+            if 'model' in checkpoint:
+                msg = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
+                logger.info(f"Model load result: {msg}")
+            else:
+                # 兼容只保存了 state_dict 的情况
+                msg = model_without_ddp.load_state_dict(checkpoint, strict=False)
+                logger.info(f"Model load result: {msg}")
+                
+            # [可选] 如果想加载 EMA 模型
+            if 'ema_model' in checkpoint and hasattr(ema_model, 'ema'):
+                 ema_model.ema.load_state_dict(checkpoint['ema_model'], strict=False)
+                 logger.info("EMA model loaded.")
+        else:
+            logger.warning(f"Checkpoint {checkpoint_path} does not exist!")
+    # ============================================================   
+
     n_parameters = sum(p.numel() for p in model_without_ddp.get_trainable_parameters() if p.requires_grad) / 1_000_000
     logger.info(f'number of params: {n_parameters} M')
     
