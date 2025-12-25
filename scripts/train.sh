@@ -4,10 +4,9 @@ export OMP_NUM_THREADS=4
 # 核心修改：batch_size 降至极低，学习率减小
 torchrun --nproc_per_node=4 run_train.py \
             +trainer.freeze_encoder=False \
-            # +pretrained_ckpt=/data/yangxianghao/SKEL-CF/data_outputs/exp/1224-TRAIN-p40-4gpu-finetune-h36m-coco/checkpoints/last_step.pth \
             trainer.batch_size=20 \
             trainer.test_batch_size=5 \
-            exp_name=1226-TRAIN-p40-4gpu-finetune-h36m-coco \
+            exp_name=1224-TRAIN-p40-4gpu-finetune-h36m-coco \
             trainer.max_lr=1e-5 \
             trainer.min_lr=1e-7 \
             trainer.total_epochs=30 \

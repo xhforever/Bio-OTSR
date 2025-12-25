@@ -33,9 +33,7 @@ def main(cfg):
         writter = None
         writter_ema = None
         
-    # os.local_rank 
     device = torch.device(f'cuda:{cfg.gpu}')
-    # fix the seed for reproducibility, different per gpu
     seed = cfg.seed + utils.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -46,14 +44,12 @@ def main(cfg):
 
     model_without_ddp = model
     if cfg.distributed:
-        # model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[cfg.gpu], find_unused_parameters=True)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[cfg.gpu], gradient_as_bucket_view=True)
         model_without_ddp = model.module
 
     ema_model = EmaModel(cfg, model_without_ddp)
 
-    # ================= [新增: 加载预训练权重逻辑] =================
-    # 注意: optimizer/lr_scheduler 状态会在它们创建后加载
+    # ================= [加载预训练权重逻辑] =================
     _checkpoint = None
     if cfg.get('pretrained_ckpt', None):
         checkpoint_path = cfg.pretrained_ckpt
@@ -61,19 +57,21 @@ def main(cfg):
             logger.info(f"Loading pretrained checkpoint from {checkpoint_path}")
             _checkpoint = torch.load(checkpoint_path, map_location='cpu')
             
-            # 加载模型权重
+            # 1. 加载模型权重
             if 'model' in _checkpoint:
                 msg = model_without_ddp.load_state_dict(_checkpoint['model'], strict=False)
                 logger.info(f"Model load result: {msg}")
             else:
-                # 兼容只保存了 state_dict 的情况
                 msg = model_without_ddp.load_state_dict(_checkpoint, strict=False)
                 logger.info(f"Model load result: {msg}")
                 
-            # [可选] 如果想加载 EMA 模型
+            # 2. 加载 EMA 模型 (如果存在)
             if 'ema_model' in _checkpoint and hasattr(ema_model, 'ema'):
-                 ema_model.ema.load_state_dict(_checkpoint['ema_model'], strict=False)
-                 logger.info("EMA model loaded.")
+                 try:
+                     ema_model.ema.load_state_dict(_checkpoint['ema_model'], strict=False)
+                     logger.info("EMA model loaded.")
+                 except Exception as e:
+                     logger.warning(f"EMA load warning: {e}")
         else:
             logger.warning(f"Checkpoint {checkpoint_path} does not exist!")
     # ============================================================   
@@ -81,9 +79,7 @@ def main(cfg):
     n_parameters = sum(p.numel() for p in model_without_ddp.get_trainable_parameters() if p.requires_grad) / 1_000_000
     logger.info(f'number of params: {n_parameters} M')
     
-    # train: concat_dataset, val: first dataset of dataset_list
     dataset_train = build_dataset(cfg=cfg, image_set='train')
-    # dataset_val = build_dataset(cfg=cfg, image_set='val')[0]
 
     if cfg.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -93,27 +89,21 @@ def main(cfg):
     batch_sampler_train = torch.utils.data.BatchSampler(
         sampler_train, cfg.trainer.batch_size, drop_last=True)
 
-    # xuele-optim, use pin_memory to speedup cpu to gpu.
     data_loader_train = DataLoader(dataset_train, 
                                     batch_sampler=batch_sampler_train, 
                                     num_workers=cfg.general.num_workers,
                                     pin_memory=True,
                                     persistent_workers=True if cfg.general.num_workers > 0 else False,
                                     prefetch_factor=2)
-    # data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train, num_workers=cfg.general.num_workers)
-    # data_loader_val = DataLoader(dataset_val, cfg.trainer.test_batch_size, sampler=sampler_val, drop_last=False, num_workers=cfg.general.num_workers)
    
     # load evaluation data     
     ds_conf = cfg.eval_list.datasets
-    # 2. Load data.
     data_list = []
     ds_list = ds_conf.split('_')
     for ds_name in ds_list:
         data = get_data(ds_name, cfg)
         data_list.append(data)
 
-    # 3. evalaute moyo 
- 
     npz_file = Path(cfg.paths.data_inputs) / 'skel-evaluation-labels' / 'moyo_hard.npz'
     moyo_dataset = EvalMoyoDataset(cfg, npz_fn=npz_file, ignore_img=False)
     moyo_data_loader = DataLoader(moyo_dataset, cfg.trainer.test_batch_size, drop_last=False, num_workers=cfg.general.num_workers)
@@ -125,7 +115,6 @@ def main(cfg):
     ]
     optimizer = torch.optim.AdamW(param_dicts, lr=cfg.trainer.max_lr, weight_decay=cfg.trainer.weight_decay)
 
-    # only warmup and constant after 
     warmup_steps = cfg.trainer.warmup_epochs * len(data_loader_train)
 
     def lr_lambda(step):
@@ -136,41 +125,37 @@ def main(cfg):
         
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
-    # ================= [恢复训练状态] =================
+    # ================= [恢复训练状态 (Optimizer/Epoch)] =================
     start_epoch = 0
     best_pve = float('inf')
-    global_step_offset = 0  # 用于 TensorBoard 日志连续
     
+    # 只有当加载了 Checkpoint 且配置允许 Resume 时才恢复状态
     if _checkpoint is not None and cfg.get('resume_training', True):
-        # 加载 optimizer 状态
+        # 1. 恢复 Optimizer
         if 'optimizer' in _checkpoint:
-            optimizer.load_state_dict(_checkpoint['optimizer'])
-            logger.info("Optimizer state loaded.")
+            try:
+                optimizer.load_state_dict(_checkpoint['optimizer'])
+                logger.info("Optimizer state loaded.")
+            except Exception as e:
+                logger.warning(f"Optimizer load failed (ok if finetuning): {e}")
         
-        # 加载 lr_scheduler 状态
+        # 2. 恢复 Scheduler
         if 'lr_scheduler' in _checkpoint:
-            lr_scheduler.load_state_dict(_checkpoint['lr_scheduler'])
-            logger.info("LR scheduler state loaded.")
+            try:
+                lr_scheduler.load_state_dict(_checkpoint['lr_scheduler'])
+                logger.info("LR scheduler state loaded.")
+            except Exception as e:
+                logger.warning(f"Scheduler load failed: {e}")
         
-        # 恢复 epoch (从下一个 epoch 开始)
+        # 3. 恢复 Epoch
         if 'epoch' in _checkpoint:
-            start_epoch = _checkpoint['epoch'] + 1
-            # 从检查点保存的 global_step 继续（确保 TensorBoard 曲线连续）
-            if 'global_step' in _checkpoint:
-                saved_global_step = _checkpoint['global_step']
-                saved_step = _checkpoint.get('step', 0)
-                # 计算当前 epoch 剩余的 steps
-                remaining_steps = len(data_loader_train) - saved_step
-                # 新 epoch 的起始 global_step = saved_global_step + remaining_steps
-                next_epoch_start = saved_global_step + remaining_steps
-                # global_step = global_step_offset + epoch * len + iter
-                # 当 epoch=start_epoch, iter=0 时，global_step = next_epoch_start
-                global_step_offset = next_epoch_start - start_epoch * len(data_loader_train)
-            else:
-                global_step_offset = 0
-            expected_start_step = global_step_offset + start_epoch * len(data_loader_train)
-            logger.info(f"Resuming from epoch {start_epoch}, global_step will start from {expected_start_step}")
-    # ================================================
+            # [Modified] 如果是中途断掉的 checkpoint，建议重跑当前 epoch，防止数据跳过
+            # 如果您确定 checkpoint 是 epoch 结束时保存的，可以用 +1
+            # 这里保守起见，直接用 saved_epoch，意味着可能会重复跑一部分数据，但比丢失数据好
+            start_epoch = _checkpoint['epoch']
+            logger.info(f"Resuming from epoch {start_epoch}")
+            
+    # ====================================================================
     
     logger.info("Start training")
     for epoch in range(start_epoch, cfg.trainer.total_epochs):
@@ -178,43 +163,43 @@ def main(cfg):
         if cfg.distributed:
             sampler_train.set_epoch(epoch)
         
+        # [Fix] 删除了 global_step_offset 参数，因为 engine.py 中未定义
         train_one_epoch(
             cfg=cfg, model=model, ema_model=ema_model, 
             criterion=criterion, data_loader=data_loader_train, optimizer=optimizer, 
-            lr_scheduler=lr_scheduler, device=device, writter=writter, epoch=epoch,
-            global_step_offset=global_step_offset,
+            lr_scheduler=lr_scheduler, device=device, writter=writter, epoch=epoch
         )
         
-        # COCO
-        evaluate_hmr2(
-            cfg=cfg, model=model_without_ddp, data_list=data_list
-        )
-        # MOYO-HARD
-        mpjpe, pampjpe, pve, _= evaluate_moyo(cfg, model_without_ddp, moyo_data_loader, device, writter, epoch, ema=False)
-        
-        # COCO
-        evaluate_hmr2(
-            cfg=cfg, model=ema_model.model, data_list=data_list
-        )
-        # MOYO-HARD
-        ema_mpjpe, ema_pampjpe, ema_pve, _ =  evaluate_moyo(cfg, ema_model.model, moyo_data_loader, device, writter_ema, epoch, ema=True)
+        # Evaluation Loop
+        if (epoch + 1) % 5 == 0 or epoch == 0 or epoch == cfg.trainer.total_epochs - 1:
+             # COCO
+            evaluate_hmr2(
+                cfg=cfg, model=model_without_ddp, data_list=data_list
+            )
+            # MOYO-HARD
+            mpjpe, pampjpe, pve, _= evaluate_moyo(cfg, model_without_ddp, moyo_data_loader, device, writter, epoch, ema=False)
+            
+            # COCO EMA
+            evaluate_hmr2(
+                cfg=cfg, model=ema_model.model, data_list=data_list
+            )
+            # MOYO-HARD EMA
+            ema_mpjpe, ema_pampjpe, ema_pve, _ =  evaluate_moyo(cfg, ema_model.model, moyo_data_loader, device, writter_ema, epoch, ema=True)
 
-        
-        if cfg.output_dir:
-            if ema_pve < best_pve:
-                best_pve = ema_pve
-                ckpt_path = output_dir / 'checkpoints/best.pth'
-                logger.info(f'BEST epoch {epoch}: MPJPE->{mpjpe:.4f} PAMPJPE->{pampjpe:.4f} PVE->{pve:.4f}')
-                logger.info(f'BEST EMA epoch {epoch}:  MPJPE->{ema_mpjpe:.4f} PAMPJPE->{ema_pampjpe:.4f} PVE->{ema_pve:.4f}')
-                utils.save_on_master({
-                    'model': model_without_ddp.state_dict(),
-                    'ema_model': ema_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': lr_scheduler.state_dict(),
-                    'epoch': epoch,
-                    'cfg': cfg,
-                }, ckpt_path)
+            if cfg.output_dir:
+                # Save Best
+                if ema_pve < best_pve:
+                    best_pve = ema_pve
+                    ckpt_path = output_dir / 'checkpoints/best.pth'
+                    logger.info(f'BEST epoch {epoch}: PVE->{pve:.4f} | EMA PVE->{ema_pve:.4f}')
+                    utils.save_on_master({
+                        'model': model_without_ddp.state_dict(),
+                        'ema_model': ema_model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'lr_scheduler': lr_scheduler.state_dict(),
+                        'epoch': epoch,
+                        'cfg': cfg,
+                    }, ckpt_path)
 
-        
 if __name__ == '__main__':
     main()
