@@ -26,10 +26,9 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         self.cfg = cfg
         
         # 定义维度常数 (需与 kin_skel.py 中的定义对应)
-        # Type A (4个关节) + Type C (2个关节) = 6个 Twist 向量
+        # Type A (4个关节) + Type C (2个关节) = 6个 Ortho 向量
         self.n_ortho_vecs = 6 
-        # Type B (4个关节) + Type D (28个参数) = 32 个标量
-        # (注: 46总参数 - 12个TypeA参数 - 2个TypeC参数 = 32剩余参数)
+        # Type B (10个关节) + Type D (22个参数) = 32 个标量
         self.n_scalars = 32 
         self.n_joints = 24
 
@@ -163,7 +162,7 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         
         # 暂且保留原逻辑：假设 pose_params_init 是某种表示。
         # 我们可以用 zeros 替代初始 pose token，让网络自己学。
-        pose_token_input = torch.zeros(B, 1, 24*6 + 3).to(x.device) 
+        pose_token_input = torch.zeros(B, 1, 24*6 + 3, device=x.device, dtype=x.dtype) 
         # (为了不大幅改动 Transformer 输入结构，这里做个简化占位，或者你需要修改 self.to_pose_embedding)
 
         betas_i = betas_init

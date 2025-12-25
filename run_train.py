@@ -53,24 +53,26 @@ def main(cfg):
     ema_model = EmaModel(cfg, model_without_ddp)
 
     # ================= [新增: 加载预训练权重逻辑] =================
+    # 注意: optimizer/lr_scheduler 状态会在它们创建后加载
+    _checkpoint = None
     if cfg.get('pretrained_ckpt', None):
         checkpoint_path = cfg.pretrained_ckpt
         if os.path.exists(checkpoint_path):
             logger.info(f"Loading pretrained checkpoint from {checkpoint_path}")
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            _checkpoint = torch.load(checkpoint_path, map_location='cpu')
             
             # 加载模型权重
-            if 'model' in checkpoint:
-                msg = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
+            if 'model' in _checkpoint:
+                msg = model_without_ddp.load_state_dict(_checkpoint['model'], strict=False)
                 logger.info(f"Model load result: {msg}")
             else:
                 # 兼容只保存了 state_dict 的情况
-                msg = model_without_ddp.load_state_dict(checkpoint, strict=False)
+                msg = model_without_ddp.load_state_dict(_checkpoint, strict=False)
                 logger.info(f"Model load result: {msg}")
                 
             # [可选] 如果想加载 EMA 模型
-            if 'ema_model' in checkpoint and hasattr(ema_model, 'ema'):
-                 ema_model.ema.load_state_dict(checkpoint['ema_model'], strict=False)
+            if 'ema_model' in _checkpoint and hasattr(ema_model, 'ema'):
+                 ema_model.ema.load_state_dict(_checkpoint['ema_model'], strict=False)
                  logger.info("EMA model loaded.")
         else:
             logger.warning(f"Checkpoint {checkpoint_path} does not exist!")
@@ -134,9 +136,43 @@ def main(cfg):
         
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
-    logger.info("Start training")
+    # ================= [恢复训练状态] =================
     start_epoch = 0
     best_pve = float('inf')
+    global_step_offset = 0  # 用于 TensorBoard 日志连续
+    
+    if _checkpoint is not None and cfg.get('resume_training', True):
+        # 加载 optimizer 状态
+        if 'optimizer' in _checkpoint:
+            optimizer.load_state_dict(_checkpoint['optimizer'])
+            logger.info("Optimizer state loaded.")
+        
+        # 加载 lr_scheduler 状态
+        if 'lr_scheduler' in _checkpoint:
+            lr_scheduler.load_state_dict(_checkpoint['lr_scheduler'])
+            logger.info("LR scheduler state loaded.")
+        
+        # 恢复 epoch (从下一个 epoch 开始)
+        if 'epoch' in _checkpoint:
+            start_epoch = _checkpoint['epoch'] + 1
+            # 从检查点保存的 global_step 继续（确保 TensorBoard 曲线连续）
+            if 'global_step' in _checkpoint:
+                saved_global_step = _checkpoint['global_step']
+                saved_step = _checkpoint.get('step', 0)
+                # 计算当前 epoch 剩余的 steps
+                remaining_steps = len(data_loader_train) - saved_step
+                # 新 epoch 的起始 global_step = saved_global_step + remaining_steps
+                next_epoch_start = saved_global_step + remaining_steps
+                # global_step = global_step_offset + epoch * len + iter
+                # 当 epoch=start_epoch, iter=0 时，global_step = next_epoch_start
+                global_step_offset = next_epoch_start - start_epoch * len(data_loader_train)
+            else:
+                global_step_offset = 0
+            expected_start_step = global_step_offset + start_epoch * len(data_loader_train)
+            logger.info(f"Resuming from epoch {start_epoch}, global_step will start from {expected_start_step}")
+    # ================================================
+    
+    logger.info("Start training")
     for epoch in range(start_epoch, cfg.trainer.total_epochs):
         
         if cfg.distributed:
@@ -145,8 +181,8 @@ def main(cfg):
         train_one_epoch(
             cfg=cfg, model=model, ema_model=ema_model, 
             criterion=criterion, data_loader=data_loader_train, optimizer=optimizer, 
-            lr_scheduler=lr_scheduler, device=device, writter=writter,epoch=epoch,
-
+            lr_scheduler=lr_scheduler, device=device, writter=writter, epoch=epoch,
+            global_step_offset=global_step_offset,
         )
         
         # COCO

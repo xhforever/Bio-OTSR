@@ -182,16 +182,69 @@ class HPE_Loss(nn.Module):
         # A. Swing Loss (L_swing): 监督 Swing Head 预测的 3D 关节位置
         # 用于帮助网络确定骨骼主轴方向
         if 'raw_kp3d' in output:
-            # 假设 target 中包含 'kp3d' 或专门的 'skel_joints' (Root-Relative)
-            # 这里复用 target['kp3d'] 的前三维 (去除置信度)，注意维度匹配
-            # target['kp3d'] shape: [B, S, N, 4] -> 取 [:, 0, :, :3] 假设 S=1
-            gt_kp3d_raw = target['kp3d'][:, 0, :, :3]
+            pred_kp3d_raw = output['raw_kp3d'] # (B, 24, 3)
+            device = pred_kp3d_raw.device
             
-            # 确保预测值维度一致
-            pred_kp3d_raw = output['raw_kp3d']
+            # 1. 提取原始 GT (假设前 24 个是 SMPL 顺序)
+            # 注意: 如果数据集输出维度是 (B, 44, 3)，前 24 个通常是 SMPL 顺序
+            if target['kp3d'].dim() == 4:
+                gt_kp3d_full = target['kp3d'][:, 0, :24, :3] # (B, 24, 3)
+            else:
+                gt_kp3d_full = target['kp3d'][:, :24, :3]    # (B, 24, 3)
+
+            # 2. [关键步骤] 定义 SKEL 到 SMPL 的映射索引
+            # 含义: prediction[i] 应该对应 gt[skel2smpl_idx[i]]
+            # 数据来源: lib/body_models/skel/kin_skel.py 中的 smpl_joint_corresp
+            skel2smpl_idx = torch.tensor([
+                0,  # 0: pelvis -> GT 0 (Pelvis)
+                2,  # 1: femur_r -> GT 2 (R_Hip)
+                5,  # 2: tibia_r -> GT 5 (R_Knee)
+                8,  # 3: talus_r -> GT 8 (R_Ankle)
+                8,  # 4: calcn_r -> GT 8 (R_Ankle) *近似
+                11, # 5: toes_r  -> GT 11 (R_Foot)
+                1,  # 6: femur_l -> GT 1 (L_Hip)
+                4,  # 7: tibia_l -> GT 4 (L_Knee)
+                7,  # 8: talus_l -> GT 7 (L_Ankle)
+                7,  # 9: calcn_l -> GT 7 (L_Ankle) *近似
+                10, # 10: toes_l -> GT 10 (L_Foot)
+                3,  # 11: lumbar -> GT 3 (Spine1)
+                6,  # 12: thorax -> GT 6 (Spine2)
+                15, # 13: head   -> GT 15 (Head)
+                14, # 14: scapula_r -> GT 14 (R_Collar)
+                17, # 15: humerus_r -> GT 17 (R_Shoulder)
+                19, # 16: ulna_r    -> GT 19 (R_Elbow)
+                0,  # 17: radius_r  -> GT 0 (Pelvis - INVALID!) -> 需Mask掉
+                21, # 18: hand_r    -> GT 21 (R_Wrist)
+                13, # 19: scapula_l -> GT 13 (L_Collar)
+                16, # 20: humerus_l -> GT 16 (L_Shoulder)
+                18, # 21: ulna_l    -> GT 18 (L_Elbow)
+                0,  # 22: radius_l  -> GT 0 (Pelvis - INVALID!) -> 需Mask掉
+                20  # 23: hand_l    -> GT 20 (L_Wrist)
+            ], device=device, dtype=torch.long)
+
+            # 3. [关键步骤] 定义有效性 Mask
+            # 这里的 0 对应上面映射列表中的 index 17 和 22 (radius)，因为 SMPL 没有对应的关节
+            # 另外 index 4 和 9 (calcn) 虽然映射到了 Ankle，但位置可能略有偏差，可视情况保留或Mask
+            # 这里我们只 Mask 掉完全错误的 radius (17, 22)
+            valid_mask = torch.ones((24, 1), device=device)
+            valid_mask[17] = 0.0
+            valid_mask[22] = 0.0
+
+            # 4. 重排序 GT 以匹配预测
+            gt_kp3d_reordered = torch.index_select(gt_kp3d_full, 1, skel2smpl_idx)
+
+            # 5. 计算 Loss (带 Mask)
+            # 计算 L1 距离
+            diff = torch.abs(pred_kp3d_raw - gt_kp3d_reordered) # (B, 24, 3)
+            # 应用 Mask (广播机制 B,24,3 * 24,1)
+            diff = diff * valid_mask
             
-            # 计算 L1 Loss
-            loss_swing = F.l1_loss(pred_kp3d_raw, gt_kp3d_raw)
+            # 求均值 (注意分母应该是有效关节数，简单起见用 mean 也可以，或者 sum / valid_count)
+            loss_swing = diff.mean()
+            
+            # 或者更严谨的 sum / count
+            # loss_swing = diff.sum() / (diff.size(0) * valid_mask.sum() * 3)
+
             loss_dict['loss_swing'] = loss_swing * self.w_swing
 
         # B. Twist Loss (L_twist): 监督 Twist Head 预测的骨骼自旋方向向量

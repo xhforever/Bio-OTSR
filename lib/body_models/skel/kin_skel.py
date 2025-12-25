@@ -220,23 +220,47 @@ BIO_OTSR_CONFIG = {
         'humerus_l': {'child': 21, 'parent': 20, 'params': [39, 40, 41]}  # Shoulder L
     },
     
-    # Type B (铰链): 需要预测标量 + 物理限制
-    # 格式: 'JointName': {'param': 参数索引, 'limit': [min, max]}
+    # Type B (铰链/受限关节): 预测标量 + Tanh限制
+    # [修复] 补充缺失的脚部关节 (7,8,9, 14,15,16)
     'TYPE_B': {
-        'knee_r':    {'param': 6,  'limit': [0, 2.6]},  # 膝关节只能弯曲
-        'knee_l':    {'param': 13, 'limit': [0, 2.6]},
-        'elbow_r':   {'param': 32, 'limit': [0, 2.6]},
-        'elbow_l':   {'param': 42, 'limit': [0, 2.6]},
-        # ... 可继续添加踝关节等
+        'knee_r':     {'param': 6,  'limit': [0, 2.6]},
+        'ankle_r':    {'param': 7,  'limit': [-0.8, 0.8]},
+        'subtalar_r': {'param': 8,  'limit': [-0.8, 0.8]},
+        'mtp_r':      {'param': 9,  'limit': [-0.8, 0.8]},
+        
+        'knee_l':     {'param': 13, 'limit': [0, 2.6]},
+        'ankle_l':    {'param': 14, 'limit': [-0.8, 0.8]},
+        'subtalar_l': {'param': 15, 'limit': [-0.8, 0.8]},
+        'mtp_l':      {'param': 16, 'limit': [-0.8, 0.8]},
+        
+        'elbow_r':    {'param': 32, 'limit': [0, 2.6]},
+        'elbow_l':    {'param': 42, 'limit': [0, 2.6]},
     },
 
-    # Type C (枢轴): 仅预测 Twist
-    # 格式: 'JointName': {'param': 参数索引, 'axis_def': [参考轴向量]}
+    # Type C (枢轴): 仅预测 Twist (需要完整配置用于角度计算)
     'TYPE_C': {
-        'radius_r': {'param': 33}, # 前臂旋转
-        'radius_l': {'param': 43}
+        'radius_r': {
+            'param': 33, 
+            'child': 18,        # Hand_r
+            'parent': 17,       # Radius_r
+            'grandparent': 15   # Humerus_r
+        },
+        'radius_l': {
+            'param': 43,
+            'child': 23,        # Hand_l
+            'parent': 22,       # Radius_l
+            'grandparent': 20   # Humerus_l
+        }
     },
 
-    # Type D (参数化): 直接回归标量 (骨盆、脊柱等)
-    'TYPE_D_INDICES': [0, 1, 2, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 34, 35, 36, 37, 38, 44, 45]
+    # Type D (参数化): 直接回归标量 (不含 TYPE_B 的索引)
+    'TYPE_D_INDICES': [
+        0, 1, 2,                # Pelvis
+        17, 18, 19, 20, 21, 22, # Spine (Lumbar, Thorax)
+        23, 24, 25,             # Head
+        26, 27, 28,             # Scapula R
+        34, 35,                 # Wrist R
+        36, 37, 38,             # Scapula L
+        44, 45                  # Wrist L
+    ]
 }

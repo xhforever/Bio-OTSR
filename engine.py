@@ -72,15 +72,14 @@ def to_device(obj, device):
 def compute_aux_loss(per_layer_params, targets):
 
     assert per_layer_params is not None and targets is not None, "per_layer_params and targets are required"
-    # B = targets['poses'].shape[0] # unused
     loss = 0.
     
-    gt_poses = params_q2rep(targets['poses']).reshape(-1, 24, 6)
-    gt_rotmat = rotation_6d_to_matrix(gt_poses)
+    # [Fixed] 使用 pose_params_to_rot 将 46 维参数转为旋转矩阵
+    gt_rotmat, _ = pose_params_to_rot(targets['poses'])  # (B, 24, 3, 3)
 
     for i, layer_params in enumerate(per_layer_params):
-        pd_poses_i = layer_params[f'pd_poses_{i}'].reshape(-1, 24, 6)
-        pd_rotmat_i = rotation_6d_to_matrix(pd_poses_i)
+        pd_poses_i = layer_params[f'pd_poses_{i}']  # (B, 46)
+        pd_rotmat_i, _ = pose_params_to_rot(pd_poses_i)  # (B, 24, 3, 3)
         loss += F.l1_loss(pd_rotmat_i, gt_rotmat, reduction='mean')
 
     return loss
@@ -88,7 +87,8 @@ def compute_aux_loss(per_layer_params, targets):
 
 def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer, 
-                    lr_scheduler: torch.optim.lr_scheduler._LRScheduler, device: torch.device, writter, epoch: int):
+                    lr_scheduler: torch.optim.lr_scheduler._LRScheduler, device: torch.device, writter, epoch: int,
+                    global_step_offset: int = 0):
     model.train()
     print_freq = cfg.logger.logger_interval
     
@@ -269,6 +269,7 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
         if (iter % print_freq == 0 or iter == len(data_loader) - 1) and utils.get_rank() == 0:
             
             checkpoint_path = Path(cfg.output_dir) / 'checkpoints/last_step.pth'
+            global_step = global_step_offset + epoch * len(data_loader) + iter
             utils.save_on_master({
                 'model': _model.state_dict(),
                 'ema_model': ema_model.state_dict(),
@@ -276,7 +277,7 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch,
                 'step': iter,
-                'global_step': epoch * len(data_loader) + iter,
+                'global_step': global_step,
                 'random_state': random.getstate(),
                 'numpy_state': np.random.get_state(),
                 'torch_state': torch.get_rng_state(),
@@ -286,16 +287,19 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
 
 
             # tensorboard log
+            # global_step_offset 已经包含了之前训练的所有步数
+            # 这里只需要加上当前 epoch 内的步数
+            global_step = global_step_offset + epoch * len(data_loader) + iter
             if writter and math.isfinite(total_loss.item()):
                 for k, v in loss_enc_dict_reduced_scaled.items():
-                    writter.add_scalar(f'train_loss_enc/{k}', v, epoch * len(data_loader) + iter)
+                    writter.add_scalar(f'train_loss_enc/{k}', v, global_step)
 
                 for k, v in loss_dec_dict_reduced_scaled.items():
-                    writter.add_scalar(f'train_loss_dec/{k}', v, epoch * len(data_loader) + iter)
+                    writter.add_scalar(f'train_loss_dec/{k}', v, global_step)
                 # total_loss
-                writter.add_scalar(f'train_loss/total_loss', total_loss, epoch * len(data_loader) + iter)
+                writter.add_scalar(f'train_loss/total_loss', total_loss, global_step)
                 # LR_curve
-                writter.add_scalar(f'train_loss/LR', optimizer.param_groups[0]['lr'], epoch * len(data_loader) + iter)
+                writter.add_scalar(f'train_loss/LR', optimizer.param_groups[0]['lr'], global_step)
 
             if math.isfinite(total_loss.item()):
                 if cfg.misc.aux_loss_weight:

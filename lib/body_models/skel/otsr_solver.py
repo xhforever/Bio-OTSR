@@ -9,100 +9,121 @@ class BioOTSRSolver(nn.Module):
         self.cfg = BIO_OTSR_CONFIG
 
     def rotation_matrix_to_euler_angles(self, R):
-        """
-        将旋转矩阵转换为 XYZ 欧拉角
-        R: (B, 3, 3)
-        Returns: (B, 3)
-        """
+        """将旋转矩阵转换为 XYZ 欧拉角"""
+        # 确保 float32 避免数值不稳定
+        R = R.float()
         sy = torch.sqrt(R[:, 0, 0] * R[:, 0, 0] + R[:, 1, 0] * R[:, 1, 0])
+        
+        # 加上极小值防止除以0
+        sy = sy + 1e-6
+        
         x = torch.atan2(R[:, 2, 1], R[:, 2, 2])
         y = torch.atan2(-R[:, 2, 0], sy)
         z = torch.atan2(R[:, 1, 0], R[:, 0, 0])
         return torch.stack([x, y, z], dim=-1)
 
-    def forward(self, pred_kp3d, pred_ortho, pred_scalar):
+    def compute_twist_angle(self, u_vec, v_vec, t_vec):
         """
-        Bio-OTSR 核心解算器
-        
+        计算 Twist 旋转角
         Args:
-            pred_kp3d: (B, 24, 3) 预测的 3D 关节坐标 (Swing)
-            pred_ortho: (B, N_Ortho, 3) 预测的扭转方向向量 (Twist)
-            pred_scalar: (B, N_Scalar) 预测的标量参数 (Type B & D)
-            
+            u_vec: (B, 3) 前臂骨骼轴 (Swing Axis)
+            v_vec: (B, 3) 上臂骨骼轴 (Reference Axis)
+            t_vec: (B, 3) 预测的 Twist 向量
         Returns:
-            final_thetas: (B, 46) 最终解算出的 SKEL 姿态参数
+            angle: (B,) 旋转弧度
         """
-        B, device = pred_kp3d.shape[0], pred_kp3d.device
-        final_thetas = torch.zeros(B, 46).to(device)
+        # 1. 构建参考坐标系 (Zero-Twist Frame)
+        # 以前臂 u 和上臂 v 构成的平面的法线作为 X 轴参考 (肘关节转轴)
+        # 注意：若手臂完全伸直(u, v平行)，此叉乘不稳定。实际应用通常加个扰动或使用默认轴。
+        ref_x = torch.cross(v_vec, u_vec) # (B, 3)
+        ref_x = F.normalize(ref_x, dim=-1)
         
-        # 指针，用于从扁平的预测向量中取值
+        # 构建参考 Y 轴 (垂直于骨骼轴 u 和 参考 X)
+        ref_y = torch.cross(u_vec, ref_x) # (B, 3)
+        
+        # 2. 将预测的 Twist 向量投影到垂直于骨骼轴 u 的平面上
+        # t_proj = t - (t . u) * u
+        proj = (t_vec * u_vec).sum(dim=-1, keepdim=True) * u_vec
+        t_proj = t_vec - proj
+        t_proj = F.normalize(t_proj, dim=-1)
+        
+        # 3. 计算夹角 (atan2)
+        # cos_theta = t_proj . ref_x
+        # sin_theta = t_proj . ref_y
+        cos_theta = (t_proj * ref_x).sum(dim=-1)
+        sin_theta = (t_proj * ref_y).sum(dim=-1)
+        
+        angle = torch.atan2(sin_theta, cos_theta)
+        return angle
+
+    def forward(self, pred_kp3d, pred_ortho, pred_scalar):
+        # 强制转换为 float32 保证几何运算精度
+        pred_kp3d = pred_kp3d.float()
+        pred_ortho = pred_ortho.float()
+        pred_scalar = pred_scalar.float()
+
+        B, device = pred_kp3d.shape[0], pred_kp3d.device
+        final_thetas = torch.zeros(B, 46, dtype=torch.float32).to(device)
+        
         ortho_ptr = 0
         scalar_ptr = 0
 
         # --- 1. 处理 Type D (直接参数) ---
         n_type_d = len(self.cfg['TYPE_D_INDICES'])
-        # 假设 pred_scalar 的前 n_type_d 个是 Type D
         final_thetas[:, self.cfg['TYPE_D_INDICES']] = pred_scalar[:, :n_type_d]
         scalar_ptr += n_type_d
 
-        # --- 2. 处理 Type B (铰链关节 - Hinge) ---
-        # 需确保 BIO_OTSR_CONFIG['TYPE_B'] 遍历顺序与 Decoder 输出顺序一致
-        # 为安全起见，这里按 param index 排序遍历
+        # --- 2. 处理 Type B (铰链关节) ---
         type_b_items = sorted(self.cfg['TYPE_B'].items(), key=lambda x: x[1]['param'])
-        
         for name, info in type_b_items:
             s = pred_scalar[:, scalar_ptr]
             scalar_ptr += 1
-            # 物理限制映射: [-1, 1] -> [min, max]
             limit = info['limit']
-            # 使用 Tanh 确保输出在 [-1, 1] 之间，然后映射到物理范围
             val = (torch.tanh(s) + 1) / 2 * (limit[1] - limit[0]) + limit[0]
             final_thetas[:, info['param']] = val
 
-        # --- 3. 处理 Type A (球窝关节 - Swing & Twist) ---
-        # 同样按关节名或特定逻辑排序，这里建议 kin_skel 中定义为列表或有序字典
-        # 假设 Decoder 是按 kin_skel 默认顺序输出的
+        # --- 3. 处理 Type A (球窝关节 - 3D 旋转) ---
         type_a_items = sorted(self.cfg['TYPE_A'].items(), key=lambda x: x[0])
-        
         for name, info in type_a_items:
-            # A. 计算 Swing (骨骼轴)
-            # 使用预测的 3D 关键点计算骨骼向量 b
             child_idx, parent_idx = info['child'], info['parent']
-            # 向量方向: 父 -> 子
             b_vec = F.normalize(pred_kp3d[:, child_idx] - pred_kp3d[:, parent_idx], dim=-1)
             
-            # B. 获取 Twist (预测的正交向量)
             t_raw = pred_ortho[:, ortho_ptr]
             ortho_ptr += 1
             
-            # C. Gram-Schmidt 正交化: o = t - (t·b)b
-            # 这一步强制 Twist 向量垂直于 Swing 向量
+            # Gram-Schmidt 正交化
             proj = (t_raw * b_vec).sum(dim=-1, keepdim=True) * b_vec
             o_vec = F.normalize(t_raw - proj, dim=-1)
             
-            # D. 构建全局旋转矩阵 R = [b, o, b x o]
-            # 注意: 这取决于 SKEL 骨骼定义的局部坐标系。
-            # 假设骨骼沿局部 X 轴 (b_vec)，Twist 轴沿局部 Y 轴 (o_vec)
-            # Z = X x Y
             z_vec = torch.cross(b_vec, o_vec)
             R_global = torch.stack([b_vec, o_vec, z_vec], dim=-1)
             
-            # E. 分解为欧拉角 (简化版：直接分解 R_global)
-            # 完整版应该乘以父关节逆矩阵 R_local = R_parent.T @ R_global
-            # 由于这里是一个单纯的 Solver 演示，暂略去父关节缓存逻辑，
-            # 实际训练中网络会学会补偿这个差异。
             euler = self.rotation_matrix_to_euler_angles(R_global)
             final_thetas[:, info['params']] = euler
 
-        # --- 4. 处理 Type C (枢轴关节) ---
+        # --- 4. [完整版] 处理 Type C (枢轴关节 - 1D 旋转) ---
         type_c_items = sorted(self.cfg['TYPE_C'].items(), key=lambda x: x[0])
         for name, info in type_c_items:
-             # Type C 通常只需要 Twist 角度，这里简化处理，占用一个 ortho 向量位置
-             # 实际上 Type C 应该与 Type A 共享部分逻辑
-             # 这里仅做占位，消耗掉 ortho_ptr
-             _ = pred_ortho[:, ortho_ptr]
+             t_raw = pred_ortho[:, ortho_ptr]
              ortho_ptr += 1
-             # 参数暂时保持 0 或由 scalar 控制 (取决于具体配置)
-             # final_thetas[:, info['param']] = 0 
+             
+             # 确保 config 中定义了这三个关键节点
+             if 'child' in info and 'parent' in info and 'grandparent' in info:
+                 c_idx, p_idx, gp_idx = info['child'], info['parent'], info['grandparent']
+                 
+                 # 1. 前臂轴 (Swing)
+                 u_vec = F.normalize(pred_kp3d[:, c_idx] - pred_kp3d[:, p_idx], dim=-1)
+                 
+                 # 2. 上臂轴 (Reference for 0-twist)
+                 v_vec = F.normalize(pred_kp3d[:, p_idx] - pred_kp3d[:, gp_idx], dim=-1)
+                 
+                 # 3. 解算角度
+                 angle = self.compute_twist_angle(u_vec, v_vec, t_raw)
+                 
+                 # 4. 赋值 (可根据需要添加 limit 限制)
+                 final_thetas[:, info['param']] = angle
+             else:
+                 # 如果 config 没写全，保持静默 (或打印警告)
+                 pass
 
         return final_thetas
