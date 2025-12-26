@@ -29,12 +29,18 @@ def get_data(ds_name, cfg):
         img_file = COCO_IMG_FILE
     else: 
         raise ValueError('UnKnown dataset!')
+    
     dataset = HmrDataset(cfg=cfg, dataset_file=dataset_file, img_dir=img_file, ds_name=ds_name, train=False)
     dataset_map = {d.name: d.item for d in cfg.data_configs.eval.datasets}
     dataset._kp_list_ = dataset_map[ds_name].kp_list
 
-
-    data_loader = DataLoader(dataset, batch_size=512, shuffle=False, num_workers=4)
+    # [Modified] 修复硬编码 Batch Size 导致的 OOM
+    # 使用 cfg.trainer.test_batch_size (您命令里设了 5)，而不是 512
+    test_batch_size = cfg.trainer.test_batch_size
+    num_workers = cfg.general.num_workers
+    
+    data_loader = DataLoader(dataset, batch_size=test_batch_size, shuffle=False, num_workers=num_workers)
+    
     return {
         'name': ds_name,
         'dataset': dataset,
