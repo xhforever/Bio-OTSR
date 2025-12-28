@@ -328,9 +328,16 @@ def evaluate_moyo(cfg, model: nn.Module, data_loader, device, writter, epoch, em
 
     # evaluate emdb dataset
     res_mpjpe, res_pampjpe, res_pve = [], [], []
-    smpl_model = SMPL(SMPL_MODEL_DIR, gender='neutral').to(device)
     
+    # [Fix] 1. 将 data_inputs 的获取提前
     data_inputs = Path(cfg.paths.data_inputs)
+    
+    # [Fix] 2. 使用 config 中的路径构建 SMPL 路径，而不是使用 constants.py 中的相对路径
+    # 原代码: smpl_model = SMPL(SMPL_MODEL_DIR, gender='neutral').to(device)
+    smpl_path = data_inputs / 'body_models' / 'SMPL'
+    smpl_model = SMPL(str(smpl_path), gender='neutral').to(device)
+    
+    # data_inputs = Path(cfg.paths.data_inputs) # 这行原来的代码可以删掉或保留，因为上面已经定义了
     skel_model = SKELWrapper(
         gender = 'male',
         model_path = data_inputs / 'body_models' / 'skel',

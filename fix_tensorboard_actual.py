@@ -1,135 +1,95 @@
-#!/usr/bin/env python3
-"""
-根据实际 TensorBoard 记录修正曲线
-分析结果：
-- Epoch 0: 4398 steps (0-4397) ✓
-- Epoch 1: 4398 steps (4398-8795) ✓
-- Epoch 2+: 记录不完整
-"""
-
+import os
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from torch.utils.tensorboard import SummaryWriter
-import glob
+from pathlib import Path
 
-log_dir = '/data/yangxianghao/SKEL-CF/data_outputs/exp/1224-TRAIN-p40-4gpu-finetune-h36m-coco/tensorboards'
-logger_interval = 50
+# ================= 配置区域 =================
+# 1. 这里填写你截图中那个包含3个文件的文件夹路径
+SOURCE_LOG_DIR = "/data/yangxianghao/SKEL-CF/data_outputs/exp/1226-TRAIN-p40-4gpu-finetune-h36m-coco/tensorboards" 
 
-print('根据实际记录修正 TensorBoard 曲线')
-print('=' * 60)
+# 2. 这里填写合并后输出的文件夹路径（运行后在TensorBoard指向这个新目录）
+OUTPUT_LOG_DIR = "/data/yangxianghao/SKEL-CF/data_outputs/exp/1226-TRAIN-p40-4gpu-finetune-h36m-coco/tensorboards/merged_tensorboard_log"
 
-# 根据实际记录：
-# - Epoch 0: 0-4397 (4398 steps) ✓，记录 0-4350 (88个记录)
-# - Epoch 1: 4398-8795 (4398 steps) ✓，记录 4398-8748 (88个记录)
-# - Epoch 2+: 8796+ (记录不完整)
+# 3. 模式选择：
+# "append": 适用于Step被重置的情况（如文件1是0-4000，文件2也是0-4000，合并后变成0-8000）
+# "overwrite": 适用于Step未重置但有重叠的情况（如文件1是0-4000，文件2是3000-7000，合并后以文件2为准）
+MERGE_MODE = "append" 
+# ===========================================
 
-epoch_info = {
-    0: {'steps': 4398, 'start': 0, 'end': 4397},  # ✓
-    1: {'steps': 4398, 'start': 4398, 'end': 8795},  # ✓
-    2: {'steps': None, 'start': 8796, 'end': None},  # 不完整
-}
-
-print('每个 epoch 的 global_step 范围:')
-for epoch, info in epoch_info.items():
-    if info['steps']:
-        print(f'  Epoch {epoch}: {info["start"]} - {info["end"]} ({info["steps"]} steps) ✓')
-    else:
-        print(f'  Epoch {epoch}: {info["start"]}+ (记录不完整)')
-print()
-
-# 收集所有原始记录
-all_events_by_tag = {}
-
-# 1. 原始文件（排除只有step 0的）
-for f in sorted(glob.glob(f'{log_dir}/events.out.*')):
-    if any(x in f for x in ['.bak', '.old', '_fixed', '_corrected', '_final', '_correct_v2', '_final_v3']):
-        continue
-    try:
-        ea = EventAccumulator(f)
-        ea.Reload()
-        scalars = ea.Tags().get('scalars', [])
-        for tag in scalars:
-            if tag not in all_events_by_tag:
-                all_events_by_tag[tag] = []
-            events = ea.Scalars(tag)
-            for e in events:
-                # 排除只有step 0的重复记录
-                if len([x for x in all_events_by_tag[tag] if x[0] == e.step]) == 0 or e.step != 0:
-                    all_events_by_tag[tag].append((e.step, e.value))
-    except:
-        pass
-
-# 2. 从 _fixed 文件恢复原始记录
-for f in glob.glob(f'{log_dir}/events.out.*_fixed*'):
-    try:
-        ea = EventAccumulator(f)
-        ea.Reload()
-        scalars = ea.Tags().get('scalars', [])
-        for tag in scalars:
-            if tag not in all_events_by_tag:
-                all_events_by_tag[tag] = []
-            events = ea.Scalars(tag)
-            for e in events:
-                original_step = e.step - 50  # 恢复原始
-                # 检查是否已存在
-                if not any(x[0] == original_step for x in all_events_by_tag[tag]):
-                    all_events_by_tag[tag].append((original_step, e.value))
-    except:
-        pass
-
-print(f'找到 {len(all_events_by_tag)} 个 scalar tags')
-print()
-
-# 创建新的 TensorBoard 日志文件
-new_writer = SummaryWriter(log_dir, filename_suffix='_actual')
-
-def map_step_to_correct_global_step(old_step):
-    """将旧的 step 映射到正确的 global_step"""
-    if old_step <= 4350:
-        # Epoch 0: 0-4397 (4398 steps) ✓
-        # 记录只到 4350，直接映射
-        return old_step
-    elif old_step <= 8748:
-        # Epoch 1: 4398-8795 (4398 steps) ✓
-        # 记录显示 4398-8748 (88个记录，实际4398 steps)
-        # 需要映射到 Epoch 1 的完整范围 4398-8795
-        epoch1_start = epoch_info[1]['start']  # 4398
-        # 记录范围 4398-8748 对应 88个记录，实际4398 steps
-        # 映射到 4398-8795
-        record_start = 4398
-        record_end = 8748
-        record_span = record_end - record_start  # 4350
-        target_span = 4397  # Epoch 1 的完整范围是 4398-8795，共4398 steps，跨度4397
+def extract_events(log_dir):
+    # 获取目录下所有 tfevents 文件，并按时间戳排序
+    files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if "tfevents" in f]
+    # 按照文件名中的时间戳排序，确保顺序正确
+    files.sort(key=lambda x: int(x.split('.')[-4]) if x.split('.')[-4].isdigit() else x)
+    
+    print(f"检测到 {len(files)} 个日志文件，顺序如下：")
+    for f in files:
+        print(f" -> {os.path.basename(f)}")
         
-        # 线性映射
-        if old_step == record_start:
-            return epoch1_start
-        elif old_step == record_end:
-            return epoch_info[1]['end']  # 8795
-        else:
-            # 线性插值
-            ratio = (old_step - record_start) / record_span
-            return int(epoch1_start + ratio * target_span)
-    else:
-        # Epoch 2+: 保持原样（记录不完整）
-        return old_step
+    return files
 
-# 写入修正后的记录
-total_events = 0
-for tag, events in all_events_by_tag.items():
-    print(f'处理 {tag}: {len(events)} 个事件')
-    for old_step, value in events:
-        new_step = map_step_to_correct_global_step(old_step)
-        new_writer.add_scalar(tag, value, new_step)
-        total_events += 1
+def fix_tensorboard(source_dir, output_dir, mode="append"):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-new_writer.close()
+    writer = SummaryWriter(log_dir=output_dir)
+    files = extract_events(source_dir)
+    
+    global_step_offset = 0
+    last_file_max_step = 0
+    
+    # 用于记录上一个文件的最后一个step，防止完全重复
+    
+    for i, file_path in enumerate(files):
+        print(f"正在处理文件: {os.path.basename(file_path)} ...")
+        
+        # 加载事件数据
+        ea = EventAccumulator(file_path)
+        ea.Reload()
+        
+        # 获取所有标量标签 (Loss, LR, etc.)
+        tags = ea.Tags()['scalars']
+        
+        # 临时存储当前文件的最大step，用于更新offset
+        current_file_max_step = 0
+        
+        for tag in tags:
+            events = ea.Scalars(tag)
+            for event in events:
+                original_step = event.step
+                value = event.value
+                
+                # === 核心逻辑：计算新的 Step ===
+                if mode == "append":
+                    # 累加模式：当前step + 之前所有文件的最大step总和
+                    new_step = original_step + global_step_offset
+                else:
+                    # 覆盖模式：直接使用原始step（自动去重由TensorBoard处理，或者这里加逻辑）
+                    new_step = original_step
+                
+                writer.add_scalar(tag, value, new_step)
+                
+                # 记录当前文件的最大step
+                if original_step > current_file_max_step:
+                    current_file_max_step = original_step
 
-print()
-print(f'完成！共处理 {total_events} 个事件')
-print(f'新文件已创建，文件名包含 _actual 后缀')
-print()
-print('修正后的每个 epoch step 数:')
-print('  Epoch 0: 4398 steps ✓')
-print('  Epoch 1: 4398 steps ✓')
-print('  Epoch 2+: 记录不完整，保持原样')
+        # 处理完一个文件后，更新 Offset
+        if mode == "append":
+            # 如果是append模式，下一个文件的0应当从当前文件的max_step + 1开始
+            # 或者是简单地加上当前文件的跨度
+            print(f"  -> 文件结束，原始 Max Step: {current_file_max_step}")
+            print(f"  -> 当前累计 Offset: {global_step_offset}")
+            
+            # 更新 Offset：加上当前文件的最大步数（假设下一个文件从0开始）
+            # 注意：如果下一个文件不是从0开始，而是一定程度的重叠，这里需要更复杂的逻辑。
+            # 针对你描述的“前两个都训练了4398step”，假设它们都是从0-4398，则：
+            global_step_offset += (current_file_max_step + 1) # +1 避免步数重复
 
+    print("========================================")
+    print(f"合并完成！请运行: tensorboard --logdir {output_dir}")
+    writer.close()
+
+if __name__ == "__main__":
+    # 为了防止路径错误，建议使用绝对路径，或者确保相对路径正确
+    # 你需要把图片里的那三个文件放到 source_dir 指向的文件夹里
+    fix_tensorboard(SOURCE_LOG_DIR, OUTPUT_LOG_DIR, mode=MERGE_MODE)
