@@ -1,0 +1,57 @@
+nohup: ignoring input
+[[36m01/04 10:31:17[0m][[33mWARNING[0m] ExpOven is not installed. Will not be able to use the oven related functions. Check https://github.com/IsshikiHugh/ExpOven for more information.[0m
+/home/yangxianghao/miniconda3/envs/skelvit/lib/python3.10/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+| distributed init (rank 0): env://
+[2026-01-04 10:31:20,165][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2026-01-04 10:31:20,165][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2026-01-04 10:31:28,520][INFO] - Vitpose-H initialized !
+[2026-01-04 10:31:28,965][INFO] - Bio-OTSR Decoder initialized with Geometric Heads!
+[2026-01-04 10:31:28,967][INFO] - SKEL Transformer decoder head initialized !
+[[36m01/04 10:31:30[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Using customized joint regressor.[0m
+[[36m01/04 10:31:30[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] using the loss type: l1 for 2D and 3D keypoint loss, HPE Loss init![0m
+[[36m01/04 10:31:30[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Bio-OTSR Weights - Swing: 10.0, Twist: 1.0, Scalar: 1.0[0m
+[[36m01/04 10:31:31[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Loading pretrained checkpoint from data_outputs/exp/1226-TRAIN-p40-4gpu-finetune-h36m-coco/checkpoints/last_step.pth[0m
+[[36m01/04 10:31:41[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Model load result: <All keys matched successfully>[0m
+[[36m01/04 10:31:41[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] number of params: 680.065159 M[0m
+[[36m01/04 10:31:42[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Loaded coco-train dataset, num samples 39668[0m
+[[36m01/04 10:31:43[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Loaded h36m-train dataset, num samples 312188[0m
+[[36m01/04 10:31:44[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Loaded 9725 samples from /data/yangxianghao/SKEL-CF/data_inputs/skel-evaluation-labels/moyo_hard.npz[0m
+[[36m01/04 10:31:46[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Optimizer state loaded.[0m
+[[36m01/04 10:31:46[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] LR scheduler state loaded.[0m
+[[36m01/04 10:31:46[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Resuming from epoch 0[0m
+[[36m01/04 10:31:46[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Start training[0m
+Training 0:   0%|          | 0/70371 [00:00<?, ?it/s][[36m01/04 10:32:07[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Epoch: [0] Iter: [0/70371] aux_loss_weight: 0.100 Loss: 1.7262 layer Losses: 0.0903 enc Losses: {
+  "kp3d": 0.13241034746170044,
+  "kp2d": 0.10788001865148544,
+  "betas": 0.0046687801368534565,
+  "poses_body": 0.027697531506419182,
+  "poses_orient": 0.002383718965575099
+} dec Losses: {
+  "kp3d": 0.20291543006896973,
+  "kp2d": 0.16292917728424072,
+  "betas": 0.007811293471604586,
+  "poses_body": 0.04219210520386696,
+  "poses_orient": 0.0035748202353715897,
+  "loss_swing": 0.3101133108139038,
+  "loss_twist": 0.12188905477523804,
+  "loss_scalar": 0.5094475150108337
+} LR: 5.40e-06[0m
+Training 0:   0%|          | 1/70371 [00:20<397:16:47, 20.32s/it][[36m01/04 10:32:07[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Reducer buckets have been rebuilt in this iteration.[0m
+Training 0:   0%|          | 2/70371 [00:24<210:50:17, 10.79s/it]Training 0:   0%|          | 3/70371 [00:27<145:35:53,  7.45s/it]Training 0:   0%|          | 4/70371 [00:31<116:56:33,  5.98s/it]Training 0:   0%|          | 5/70371 [00:35<100:44:20,  5.15s/it]Training 0:   0%|          | 6/70371 [00:39<91:12:45,  4.67s/it] Training 0:   0%|          | 7/70371 [00:42<84:57:54,  4.35s/it]Training 0:   0%|          | 8/70371 [00:46<80:40:57,  4.13s/it]Training 0:   0%|          | 9/70371 [00:50<78:10:11,  4.00s/it]Training 0:   0%|          | 10/70371 [00:53<76:03:36,  3.89s/it]Training 0:   0%|          | 11/70371 [00:57<76:21:25,  3.91s/it]Training 0:   0%|          | 12/70371 [01:01<74:36:39,  3.82s/it]Training 0:   0%|          | 13/70371 [01:05<74:28:03,  3.81s/it]Training 0:   0%|          | 14/70371 [01:08<73:52:29,  3.78s/it]Training 0:   0%|          | 15/70371 [01:12<73:09:45,  3.74s/it]Training 0:   0%|          | 16/70371 [01:16<72:41:54,  3.72s/it]Training 0:   0%|          | 17/70371 [01:19<72:15:24,  3.70s/it]Training 0:   0%|          | 18/70371 [01:23<72:00:01,  3.68s/it]Training 0:   0%|          | 19/70371 [01:27<72:24:50,  3.71s/it]Training 0:   0%|          | 20/70371 [01:30<72:10:18,  3.69s/it]Training 0:   0%|          | 21/70371 [01:34<71:41:07,  3.67s/it]Training 0:   0%|          | 22/70371 [01:38<71:03:31,  3.64s/it]Training 0:   0%|          | 23/70371 [01:41<70:54:31,  3.63s/it]Training 0:   0%|          | 24/70371 [01:45<71:04:51,  3.64s/it]Training 0:   0%|          | 25/70371 [01:48<70:55:07,  3.63s/it]Training 0:   0%|          | 26/70371 [01:52<70:45:20,  3.62s/it]Training 0:   0%|          | 27/70371 [01:56<70:46:22,  3.62s/it]Training 0:   0%|          | 28/70371 [02:00<72:33:27,  3.71s/it]Training 0:   0%|          | 29/70371 [02:03<72:02:32,  3.69s/it]Training 0:   0%|          | 30/70371 [02:07<72:14:23,  3.70s/it]Training 0:   0%|          | 31/70371 [02:11<72:14:06,  3.70s/it]Training 0:   0%|          | 32/70371 [02:14<72:16:30,  3.70s/it]Training 0:   0%|          | 33/70371 [02:18<71:42:43,  3.67s/it]Training 0:   0%|          | 34/70371 [02:22<71:35:00,  3.66s/it]Training 0:   0%|          | 35/70371 [02:25<71:33:58,  3.66s/it]Training 0:   0%|          | 36/70371 [02:29<71:48:31,  3.68s/it]Training 0:   0%|          | 37/70371 [02:33<71:15:44,  3.65s/it]Training 0:   0%|          | 38/70371 [02:36<70:59:37,  3.63s/it]Training 0:   0%|          | 39/70371 [02:40<70:50:07,  3.63s/it]Training 0:   0%|          | 40/70371 [02:43<70:37:04,  3.61s/it]Training 0:   0%|          | 41/70371 [02:47<70:19:08,  3.60s/it]Training 0:   0%|          | 42/70371 [02:50<70:04:25,  3.59s/it]Training 0:   0%|          | 43/70371 [02:54<69:56:18,  3.58s/it]Training 0:   0%|          | 44/70371 [02:58<70:58:41,  3.63s/it]Training 0:   0%|          | 45/70371 [03:01<70:33:59,  3.61s/it]Training 0:   0%|          | 46/70371 [03:05<70:15:14,  3.60s/it]Training 0:   0%|          | 47/70371 [03:08<70:02:07,  3.59s/it]Training 0:   0%|          | 48/70371 [03:12<69:49:21,  3.57s/it]Training 0:   0%|          | 49/70371 [03:16<70:00:54,  3.58s/it]Training 0:   0%|          | 50/70371 [03:19<70:08:43,  3.59s/it][[36m01/04 10:38:35[0m @ [36m__init__[0m @ [36mb/skel_wrapper.py[0m:[36m73[0m][[32mINFO[0m] Epoch: [0] Iter: [50/70371] aux_loss_weight: 0.100 Loss: 1.1229 layer Losses: 0.0727 enc Losses: {
+  "kp3d": 0.07083959132432938,
+  "kp2d": 0.05557483434677124,
+  "betas": 0.004907258786261082,
+  "poses_body": 0.02078145556151867,
+  "poses_orient": 0.0010003655916079879
+} dec Losses: {
+  "kp3d": 0.16461527347564697,
+  "kp2d": 0.11384414881467819,
+  "betas": 0.00920140277594328,
+  "poses_body": 0.04395613819360733,
+  "poses_orient": 0.0050969431176781654,
+  "loss_swing": 0.22833885252475739,
+  "loss_twist": 0.09351533651351929,
+  "loss_scalar": 0.23852303624153137
+} LR: 5.41e-06[0m
+Training 0:   0%|          | 51/70371 [06:49<1276:30:20, 65.35s/it]Training 0:   0%|          | 52/70371 [06:52<914:38:50, 46.83s/it] Training 0:   0%|          | 53/70371 [06:56<661:38:33, 33.87s/it]Training 0:   0%|          | 54/70371 [06:59<484:08:28, 24.79s/it]Training 0:   0%|          | 55/70371 [07:03<358:54:49, 18.38s/it]Training 0:   0%|          | 56/70371 [07:06<272:07:35, 13.93s/it]Training 0:   0%|          | 57/70371 [07:10<211:23:56, 10.82s/it]Training 0:   0%|          | 58/70371 [07:14<170:07:08,  8.71s/it]Training 0:   0%|          | 59/70371 [07:17<140:09:23,  7.18s/it]Training 0:   0%|          | 60/70371 [07:21<119:04:15,  6.10s/it]Training 0:   0%|          | 61/70371 [07:25<104:10:06,  5.33s/it]Training 0:   0%|          | 62/70371 [07:28<93:46:09,  4.80s/it] Training 0:   0%|          | 63/70371 [07:32<86:30:27,  4.43s/it]Training 0:   0%|          | 64/70371 [07:35<80:24:41,  4.12s/it]Training 0:   0%|          | 65/70371 [07:39<77:07:24,  3.95s/it]Training 0:   0%|          | 66/70371 [07:42<74:42:47,  3.83s/it]Training 0:   0%|          | 67/70371 [07:46<74:28:07,  3.81s/it]Training 0:   0%|          | 68/70371 [07:50<73:07:18,  3.74s/it]Training 0:   0%|          | 69/70371 [07:53<72:04:17,  3.69s/it]Training 0:   0%|          | 70/70371 [07:57<71:12:58,  3.65s/it]Training 0:   0%|          | 71/70371 [08:00<70:43:54,  3.62s/it]Training 0:   0%|          | 72/70371 [08:04<70:20:49,  3.60s/it]Training 0:   0%|          | 73/70371 [08:07<70:02:06,  3.59s/it]Training 0:   0%|          | 74/70371 [08:11<69:57:39,  3.58s/it]Training 0:   0%|          | 75/70371 [08:15<71:04:43,  3.64s/it]Training 0:   0%|          | 76/70371 [08:18<70:50:52,  3.63s/it]Training 0:   0%|          | 77/70371 [08:22<70:17:41,  3.60s/it]Training 0:   0%|          | 78/70371 [08:25<70:14:43,  3.60s/it]Training 0:   0%|          | 79/70371 [08:29<70:04:30,  3.59s/it]Training 0:   0%|          | 80/70371 [08:33<69:56:17,  3.58s/it]Training 0:   0%|          | 81/70371 [08:36<69:42:27,  3.57s/it]Training 0:   0%|          | 82/70371 [08:40<69:49:58,  3.58s/it]Training 0:   0%|          | 83/70371 [08:43<69:44:31,  3.57s/it]Training 0:   0%|          | 84/70371 [08:47<69:52:45,  3.58s/it]Training 0:   0%|          | 85/70371 [08:51<70:38:58,  3.62s/it]Training 0:   0%|          | 86/70371 [08:54<70:06:10,  3.59s/it]Training 0:   0%|          | 87/70371 [08:58<69:40:02,  3.57s/it]Training 0:   0%|          | 88/70371 [09:01<69:25:39,  3.56s/it]Training 0:   0%|          | 89/70371 [09:05<69:29:39,  3.56s/it]Training 0:   0%|          | 90/70371 [09:08<69:29:27,  3.56s/it]Training 0:   0%|          | 91/70371 [09:12<69:27:24,  3.56s/it]Training 0:   0%|          | 92/70371 [09:16<71:06:25,  3.64s/it]Training 0:   0%|          | 93/70371 [09:19<70:21:53,  3.60s/it]Training 0:   0%|          | 94/70371 [09:23<69:46:41,  3.57s/it]Training 0:   0%|          | 95/70371 [09:26<69:37:52,  3.57s/it]Training 0:   0%|          | 96/70371 [09:30<69:20:20,  3.55s/it]Training 0:   0%|          | 97/70371 [09:33<69:22:15,  3.55s/it]Training 0:   0%|          | 98/70371 [09:37<69:27:38,  3.56s/it]Training 0:   0%|          | 99/70371 [09:40<69:13:16,  3.55s/it]Training 0:   0%|          | 100/70371 [09:44<69:01:18,  3.54s/it]
