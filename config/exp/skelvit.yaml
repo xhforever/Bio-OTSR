@@ -21,7 +21,7 @@ loss_weights:
   kp2d: 0.05
   poses_orient: 0.002
   poses_body: 0.001
-  betas: 0.0005
+  betas: 0.001
   w_swing: 10.0
   w_twist: 1.0
   w_scalar: 1.0

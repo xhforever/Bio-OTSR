@@ -145,8 +145,8 @@ def train_one_epoch(cfg, model: torch.nn.Module, ema_model: torch.nn.Module, cri
             ortho_vecs = []
             
             # 处理 Type A (Twist 向量)
-            # 假设 Twist 轴为局部 Y 轴 [0, 1, 0] (根据 kin_skel 定义)
-            twist_axis = torch.tensor([0., 1., 0.], device=device).view(1, 3, 1)
+            # 假设 Twist 轴为局部 X 轴 [1, 0, 0] (根据 kin_skel 定义)
+            twist_axis = torch.tensor([1., 0., 0.], device=device).view(1, 3, 1)
             
             # 注意：字典遍历顺序需固定，建议按 child index 排序
             # 这里简单处理，需确保 Decoder 也是按此顺序输出
