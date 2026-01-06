@@ -3,6 +3,15 @@
 defaults:
   - default.yaml
 
+# [新增] 指定预训练权重 (SKEL-CF)
+pretrained_ckpt: "/data/yangxianghao/SKEL-CF/data_outputs/exp/SKEL-CF.pth"  # 请替换为您的实际路径
+
+trainer:
+  # [新增] 开启冻结开关
+  freeze_encoder: True
+  # 其他 trainer 参数 (如 batch_size) 会从 default.yaml 继承或在此覆盖
+  # batch_size: 64
+
 general:
   num_workers: 6
   PREFETCH_FACTOR: 2 

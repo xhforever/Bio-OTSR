@@ -77,6 +77,17 @@ class SKELViT(nn.Module):
 
         return skel_head
 
+    def train(self, mode=True):
+        """
+        重写 train 方法以确保冻结的 encoder 始终保持在 eval 模式
+        """
+        super().train(mode)
+        
+        # 如果配置了冻结 encoder，强制将其设为 eval 模式
+        if mode and self.cfg.trainer.get('freeze_encoder', False):
+            self.backbone.eval()
+            # logger.info("Enforcing backbone to eval mode during training") # 可选日志
+
     def get_trainable_parameters(self):
         # 如果 encoder 被冻结，只返回 decoder 的可训练参数
         if self.cfg.trainer.get('freeze_encoder', False):
