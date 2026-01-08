@@ -9,5 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t skel-cf .
+      - name: Build Docker image
+        run: docker build -t bio-otsr .
+
