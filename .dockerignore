@@ -1,0 +1,10 @@
+.git
+__pycache__
+*.pyc
+*.log
+*.ipynb
+data_outputs/
+demo_output/
+datasets/
+SKEL-CF copy*
+.env
