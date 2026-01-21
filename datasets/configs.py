@@ -25,7 +25,7 @@ DATASET_FOLDERS = {
 DATASET_FILES = [
     {
         # test labels
-        '3dpw-smpl': os.path.join(base_dir, 'data_inputs/skel-evaluation-labels/3dpw_val.npz'),
+        '3dpw-smpl': os.path.join(base_dir, 'data_inputs/skel-evaluation-labels/3dpw_test.npz'),
         'emdb-smpl': os.path.join(base_dir, 'data_inputs/skel-evaluation-labels/emdb_test.npz'),
         'moyo-smpl': os.path.join(base_dir, 'data_inputs/skel-evaluation-labels/moyo_v2.npz'),
         'h36m-val': os.path.join(base_dir, 'data_inputs/skel-evaluation-labels/h36m_val_p2.npz'),

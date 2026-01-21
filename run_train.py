@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import math
 import os
 import random
 from pathlib import Path
@@ -47,9 +48,8 @@ def main(cfg):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[cfg.gpu], gradient_as_bucket_view=True)
         model_without_ddp = model.module
 
-    ema_model = EmaModel(cfg, model_without_ddp)
-
     # ================= [加载预训练权重逻辑] =================
+    # 先加载checkpoint，再创建EMA模型，避免deepcopy未初始化的模型
     _checkpoint = None
     if cfg.get('pretrained_ckpt', None):
         checkpoint_path = cfg.pretrained_ckpt
@@ -59,22 +59,48 @@ def main(cfg):
             
             # 1. 加载模型权重
             if 'model' in _checkpoint:
-                msg = model_without_ddp.load_state_dict(_checkpoint['model'], strict=False)
-                logger.info(f"Model load result: {msg}")
+                state_dict = _checkpoint['model']
             else:
-                msg = model_without_ddp.load_state_dict(_checkpoint, strict=False)
-                logger.info(f"Model load result: {msg}")
-                
-            # 2. 加载 EMA 模型 (如果存在)
-            if 'ema_model' in _checkpoint and hasattr(ema_model, 'ema'):
-                 try:
-                     ema_model.ema.load_state_dict(_checkpoint['ema_model'], strict=False)
-                     logger.info("EMA model loaded.")
-                 except Exception as e:
-                     logger.warning(f"EMA load warning: {e}")
+                state_dict = _checkpoint
+            
+            # 处理形状不匹配的参数（自动适配axis_flip的形状）
+            model_state = model_without_ddp.state_dict()
+            fixed_state_dict = {}
+            for k, v in state_dict.items():
+                if 'axis_flip' in k and k in model_state:
+                    target_shape = model_state[k].shape
+                    if v.shape != target_shape:
+                        # 自动调整形状以匹配目标
+                        if v.dim() == 2 and target_shape.numel() == v.numel():
+                            # [N, 1] -> [N]
+                            fixed_state_dict[k] = v.squeeze()
+                        elif v.dim() == 1 and len(target_shape) == 2:
+                            # [N] -> [N, 1]
+                            fixed_state_dict[k] = v.unsqueeze(-1)
+                        else:
+                            fixed_state_dict[k] = v
+                        logger.info(f"Fixed shape for {k}: {v.shape} -> {fixed_state_dict[k].shape}")
+                    else:
+                        fixed_state_dict[k] = v
+                else:
+                    fixed_state_dict[k] = v
+            
+            msg = model_without_ddp.load_state_dict(fixed_state_dict, strict=False)
+            logger.info(f"Model load result: {msg}")
         else:
             logger.warning(f"Checkpoint {checkpoint_path} does not exist!")
-    # ============================================================   
+    # ============================================================
+
+    # 创建EMA模型（在加载checkpoint之后）
+    ema_model = EmaModel(cfg, model_without_ddp)
+    
+    # 加载 EMA 模型权重 (如果checkpoint中存在)
+    if _checkpoint is not None and 'ema_model' in _checkpoint:
+        try:
+            ema_model.model.load_state_dict(_checkpoint['ema_model'], strict=False)
+            logger.info("EMA model loaded from checkpoint.")
+        except Exception as e:
+            logger.warning(f"EMA load warning: {e}")   
 
     n_parameters = sum(p.numel() for p in model_without_ddp.get_trainable_parameters() if p.requires_grad) / 1_000_000
     logger.info(f'number of params: {n_parameters} M')
@@ -116,18 +142,28 @@ def main(cfg):
     optimizer = torch.optim.AdamW(param_dicts, lr=cfg.trainer.max_lr, weight_decay=cfg.trainer.weight_decay)
 
     warmup_steps = cfg.trainer.warmup_epochs * len(data_loader_train)
+    total_steps = cfg.trainer.total_epochs * len(data_loader_train)
+    
+    # 最小 LR 比例
+    min_lr_ratio = cfg.trainer.min_lr / cfg.trainer.max_lr
 
     def lr_lambda(step):
         if step < warmup_steps:
+            # Warmup: 线性增长
             return (step + 1) / warmup_steps
         else:
-            return 1.0
+            # Cosine Decay: warmup 后余弦衰减到 min_lr
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
         
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     # ================= [恢复训练状态 (Optimizer/Epoch)] =================
     start_epoch = 0
     best_pve = float('inf')
+    # 为 TensorBoard 继续绘制准备的全局步数偏移，默认从 0 开始
+    global_step_offset = 0
     
     # 只有当加载了 Checkpoint 且配置允许 Resume 时才恢复状态
     if _checkpoint is not None and cfg.get('resume_training', True):
@@ -139,13 +175,17 @@ def main(cfg):
             except Exception as e:
                 logger.warning(f"Optimizer load failed (ok if finetuning): {e}")
         
-        # 2. 恢复 Scheduler
-        if 'lr_scheduler' in _checkpoint:
+        # 2. 恢复 Scheduler (可选，如果代码变化可能不兼容)
+        # 注意：如果 scheduler 逻辑变化（如从常数 LR 改为 cosine decay），不应恢复旧状态
+        # 可通过配置 resume_scheduler=False 跳过
+        if 'lr_scheduler' in _checkpoint and cfg.get('resume_scheduler', True):
             try:
                 lr_scheduler.load_state_dict(_checkpoint['lr_scheduler'])
                 logger.info("LR scheduler state loaded.")
             except Exception as e:
-                logger.warning(f"Scheduler load failed: {e}")
+                logger.warning(f"Scheduler load failed (ok if scheduler logic changed): {e}")
+        else:
+            logger.info("Skipping LR scheduler restore (using fresh scheduler).")
         
         # 3. 恢复 Epoch
         if 'epoch' in _checkpoint:
@@ -154,6 +194,18 @@ def main(cfg):
             # 这里保守起见，直接用 saved_epoch，意味着可能会重复跑一部分数据，但比丢失数据好
             start_epoch = _checkpoint['epoch']
             logger.info(f"Resuming from epoch {start_epoch}")
+
+        # 4. 计算全局步数偏移，使 TensorBoard 曲线连续
+        steps_per_epoch = len(data_loader_train)
+        ckpt_global_step = _checkpoint.get('global_step')
+        if ckpt_global_step is not None and steps_per_epoch > 0:
+            # 公式：当前日志步数 = global_step_offset + epoch * steps_per_epoch + iter
+            # 设定第一个 iter=0 的日志步数为 ckpt_global_step+1
+            global_step_offset = max(ckpt_global_step + 1 - start_epoch * steps_per_epoch, 0)
+            logger.info(
+                f"TensorBoard will continue from global_step {ckpt_global_step}+1; "
+                f"offset set to {global_step_offset} (epoch={start_epoch}, steps_per_epoch={steps_per_epoch})"
+            )
             
     # ====================================================================
     
@@ -167,7 +219,8 @@ def main(cfg):
         train_one_epoch(
             cfg=cfg, model=model, ema_model=ema_model, 
             criterion=criterion, data_loader=data_loader_train, optimizer=optimizer, 
-            lr_scheduler=lr_scheduler, device=device, writter=writter, epoch=epoch
+            lr_scheduler=lr_scheduler, device=device, writter=writter, epoch=epoch,
+            global_step_offset=global_step_offset
         )
         
         # Evaluation Loop

@@ -3,13 +3,13 @@
 DATASETS:
   DATASETS_AND_RATIOS: 
     # _insta-1_insta-2_mpii-train_coco-train_h36m-train_mpi-inf-train
-    # - 'aic'
-    # - 'insta-1'
-    # - 'insta-2'
-    # - 'mpii-train'
+    - 'aic'
+    - 'insta-1'
+    - 'insta-2'
+    - 'mpii-train'
     - 'coco-train'
     - 'h36m-train'
-    # - 'mpi-inf-train'
+    - 'mpi-inf-train'
     # - 'agora-train'
     # # 2022 1010 - 2
     # - '20221010_3_1000_batch01hand_6fps'

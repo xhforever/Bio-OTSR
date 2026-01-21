@@ -110,7 +110,7 @@ class CrossAttention(nn.Module):
             else nn.Identity()
         )
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, return_attention=False):
         context = default(context, x)
         k, v = self.to_kv(context).chunk(2, dim=-1)
         q = self.to_q(x)
@@ -119,10 +119,14 @@ class CrossAttention(nn.Module):
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
 
         attn = self.attend(dots)
+        attn_weights = attn.clone() if return_attention else None
         attn = self.dropout(attn)
 
         out = torch.matmul(attn, v)
         out = rearrange(out, "b h n d -> b n (h d)")
+        
+        if return_attention:
+            return self.to_out(out), attn_weights
         return self.to_out(out)
 
 

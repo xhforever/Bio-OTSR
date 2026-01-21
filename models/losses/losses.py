@@ -124,9 +124,10 @@ class HPE_Loss(nn.Module):
         
         # [Added] Bio-OTSR Loss Weights
         # 优先从配置中读取，如果没有则使用默认值
-        self.w_swing = getattr(cfg.loss_weights, 'w_swing', 10.0)
-        self.w_twist = getattr(cfg.loss_weights, 'w_twist', 1.0)
-        self.w_scalar = getattr(cfg.loss_weights, 'w_scalar', 1.0)
+        # 注意：OmegaConf DictConfig 需要使用 .get() 方法，不能用 getattr
+        self.w_swing = cfg.loss_weights.get('w_swing', 10.0)
+        self.w_twist = cfg.loss_weights.get('w_twist', 1.0)
+        self.w_scalar = cfg.loss_weights.get('w_scalar', 1.0)
         
         logger.info(f'using the loss type: {loss_type} for 2D and 3D keypoint loss, HPE Loss init!')
         logger.info(f'Bio-OTSR Weights - Swing: {self.w_swing}, Twist: {self.w_twist}, Scalar: {self.w_scalar}')

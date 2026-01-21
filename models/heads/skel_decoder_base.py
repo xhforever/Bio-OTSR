@@ -21,7 +21,7 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         2. Uses BioOTSRSolver to convert features to SKEL Poses.
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, skel_model=None):
         super().__init__()
         self.cfg = cfg
         
@@ -35,6 +35,21 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         self.num_decoder_layers = 6 
         n_betas = 10
         n_cam = 3
+        
+        # [NEW] Precompute Basis Matrix (Ra) for BioOTSRSolver
+        if skel_model is not None:
+            # 兼容 apose_rel_transfo 维度 (可能是 [Nj,4,4] 或 [1,Nj,4,4])
+            ra_src = skel_model.apose_rel_transfo
+            if ra_src.dim() == 3:          # [Nj, 4, 4]
+                ra_init = ra_src.unsqueeze(0)[..., :3, :3]
+            elif ra_src.dim() == 4:        # [1, Nj, 4, 4]
+                ra_init = ra_src[..., :3, :3]
+            else:
+                logger.warning(f"Unexpected apose_rel_transfo dim={ra_src.dim()}, using raw tensor")
+                ra_init = ra_src
+            self.register_buffer('ra_init', ra_init)
+        else:
+            self.register_buffer('ra_init', None)
 
         # Build transformer decoder.
         transformer_args = {
@@ -146,23 +161,24 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         ortho_i = self.ortho_decoder(x_cls)   # (B, 6*3)
         scalar_i = self.scalar_decoder(x_cls) # (B, 32)
         
-        # 为了 Transformer Token 的构建，我们需要一个 Pose 的 Embedding 表示。
-        # 原代码使用 6D 旋转。为了兼容 self.to_pose_embedding，
-        # 我们可以临时解算一次 Pose，或者用零初始化一个 dummy token。
-        # 简单起见，我们在这里解算一次作为初始 token 状态。
-        with torch.no_grad(): # 初始化阶段不传梯度，节省显存
-            pose_params_init = self.solver(
-                xyz_i.reshape(B, 24, 3), 
-                ortho_i.reshape(B, self.n_ortho_vecs, 3), 
-                scalar_i
-            ) # (B, 46)
-            # 将 46维 Euler 转为 6D (24*6=144) 以适配 Embedding 层
-            # 注意: 这里需要一个 utility 将 46维转 144维，或者修改 self.to_pose_embedding
-            # 方案 B: 修改 to_pose_embedding 的输入维度为 46+3 (更简单) -> 见下方注
+        # [NEW] 构建 Transformer Token 输入：将几何特征转换为 Pose Embedding
+        # 1. 首先使用初始几何特征解算出 SKEL 参数 (46维)
+        # [NEW] Pass basis matrix
+        basis_matrix = self.ra_init.expand(B, -1, -1, -1) if self.ra_init is not None else None
         
-        # 暂且保留原逻辑：假设 pose_params_init 是某种表示。
-        # 我们可以用 zeros 替代初始 pose token，让网络自己学。
-        pose_token_input = torch.zeros(B, 1, 24*6 + 3, device=x.device, dtype=x.dtype) 
+        pose_params_init = self.solver(
+            xyz_i.reshape(B, 24, 3), 
+            ortho_i.reshape(B, self.n_ortho_vecs, 3), 
+            scalar_i,
+            basis_matrix=basis_matrix
+        ) # (B, 46)
+        
+        # 2. 将 46维 SKEL Euler 参数转为 6D 旋转表示 (24*6=144维)
+        pose_params_6d = params_q2rep(pose_params_init)  # (B, 24, 6)
+        pose_params_6d_flat = pose_params_6d.reshape(B, -1)  # (B, 144)
+        
+        # 3. 拼接 bbox_info 构建完整的 pose token 输入 (144 + 3 = 147)
+        pose_token_input = torch.cat([pose_params_6d_flat, bbox_info], dim=-1).unsqueeze(1)  # (B, 1, 147) 
         # (为了不大幅改动 Transformer 输入结构，这里做个简化占位，或者你需要修改 self.to_pose_embedding)
 
         betas_i = betas_init
@@ -186,11 +202,15 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         token = token + self.pos_embedding[:, :n]
         
         per_layer_params = []
+        per_layer_features = []  # 保存每层的token特征
+        per_layer_attentions = []  # 保存每层的cross-attention权重
         
         for i, (self_attn, cross_attn, ff) in enumerate(self.layers):
             # 1. Update Tokens
             token = self_attn(token) + token
-            token = cross_attn(token, context=context_list[i]) + token
+            # 获取cross-attention权重
+            cross_out, attn_weights = cross_attn(token, context=context_list[i], return_attention=True)
+            token = cross_out + token
             token = ff(token) + token
 
             # 2. [NEW] Update Geometric Features (Residual Learning)
@@ -209,7 +229,7 @@ class SKELTransformerDecoderHeadBase(nn.Module):
             cur_ortho = ortho_i.reshape(B, self.n_ortho_vecs, 3)
             
             # 调用 Solver 解算
-            solved_poses = self.solver(cur_kp3d, cur_ortho, scalar_i) # (B, 46)
+            solved_poses = self.solver(cur_kp3d, cur_ortho, scalar_i, basis_matrix=basis_matrix) # (B, 46)
 
             per_layer_params.append({
                 f'pd_poses_{i}' : solved_poses, # 用于 L_param
@@ -219,6 +239,10 @@ class SKELTransformerDecoderHeadBase(nn.Module):
                 f'raw_kp3d_{i}' : cur_kp3d,
                 f'raw_ortho_{i}': cur_ortho
             })
+            
+            # 保存当前层的token特征和attention用于可视化
+            per_layer_features.append(token.detach())
+            per_layer_attentions.append(attn_weights.detach() if attn_weights is not None else None)
 
             # 4. Update Token for next layer (Optional)
             # 如果希望 Transformer 感知到当前的 Pose 变化，应更新 token
@@ -229,7 +253,7 @@ class SKELTransformerDecoderHeadBase(nn.Module):
         # Final Solve
         final_kp3d = xyz_i.reshape(B, 24, 3)
         final_ortho = ortho_i.reshape(B, self.n_ortho_vecs, 3)
-        final_solved_poses = self.solver(final_kp3d, final_ortho, scalar_i)
+        final_solved_poses = self.solver(final_kp3d, final_ortho, scalar_i, basis_matrix=basis_matrix)
 
         # 整理输出字典
         return {
@@ -248,5 +272,7 @@ class SKELTransformerDecoderHeadBase(nn.Module):
             'raw_ortho'    : final_ortho,
             'raw_scalar'   : scalar_i,
             
-            'per_layer_params' : per_layer_params
+            'per_layer_params' : per_layer_params,
+            'per_layer_features' : per_layer_features,  # decoder每层的token特征
+            'per_layer_attentions' : per_layer_attentions  # decoder每层的cross-attention权重
         }

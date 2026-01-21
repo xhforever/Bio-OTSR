@@ -214,10 +214,10 @@ BIO_OTSR_CONFIG = {
     # Type A (球窝): 需要预测 Swing (XYZ) 和 Twist (Ortho向量)
     # 格式: 'JointName': {'child': 子关节ID, 'parent': 父关节ID, 'params': [欧拉角参数索引列表]}
     'TYPE_A': {
-        'femur_r':   {'child': 2,  'parent': 1,  'params': [3, 4, 5]},   # Hip R
-        'femur_l':   {'child': 7,  'parent': 6,  'params': [10, 11, 12]}, # Hip L
-        'humerus_r': {'child': 16, 'parent': 15, 'params': [29, 30, 31]}, # Shoulder R
-        'humerus_l': {'child': 21, 'parent': 20, 'params': [39, 40, 41]}  # Shoulder L
+        'femur_r':   {'child': 1,  'parent': 0,  'params': [3, 4, 5]},   # Hip R: pelvis → femur_r
+        'femur_l':   {'child': 6,  'parent': 0,  'params': [10, 11, 12]}, # Hip L: pelvis → femur_l
+        'humerus_r': {'child': 15, 'parent': 12, 'params': [29, 30, 31]}, # Shoulder R: thorax → humerus_r
+        'humerus_l': {'child': 20, 'parent': 12, 'params': [39, 40, 41]}  # Shoulder L: thorax → humerus_l
     },
     
     # Type B (铰链/受限关节): 预测标量 + Tanh限制

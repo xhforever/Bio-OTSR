@@ -67,7 +67,10 @@ class DefaultPredictor_Lazy:
             self.aug = mapper.augmentations
             self.input_format = mapper.image_format
 
-        self.model.eval().cuda()
+        self.model.eval()
+        # 根据CUDA可用性自动选择设备
+        if torch.cuda.is_available():
+            self.model.cuda()
         if test_dataset:
             self.metadata = MetadataCatalog.get(test_dataset)
         assert self.input_format in ["RGB", "BGR"], self.input_format

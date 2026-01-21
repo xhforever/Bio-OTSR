@@ -304,7 +304,7 @@ class ViT(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token'}
 
-    def forward_features(self, x):
+    def forward_features(self, x, return_intermediate=False):
         B, C, H, W = x.shape
         x, (Hp, Wp) = self.patch_embed(x)
 
@@ -313,21 +313,27 @@ class ViT(nn.Module):
             # since the first element for pos embed (sin-cos manner) is zero, it will cause no difference
             x = x + self.pos_embed[:, 1:] + self.pos_embed[:, :1]
 
+        intermediate_features = [] if return_intermediate else None
+        
         for blk in self.blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
+            
+            if return_intermediate:
+                intermediate_features.append(x.clone())
 
         x = self.last_norm(x)
 
         xp = x.permute(0, 2, 1).reshape(B, -1, Hp, Wp).contiguous()
 
+        if return_intermediate:
+            return x, intermediate_features
         return x
 
-    def forward(self, x):
-        x = self.forward_features(x)
-        return x
+    def forward(self, x, return_intermediate=False):
+        return self.forward_features(x, return_intermediate=return_intermediate)
 
     def train(self, mode=True):
         """Convert the model into training mode."""

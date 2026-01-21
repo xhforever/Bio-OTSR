@@ -16,7 +16,18 @@ class EmaModel(nn.Module):
         super(EmaModel, self).__init__()
         # Create EMA(FP16)
         self.cfg = cfg 
-        self.model = deepcopy(model).eval()
+        
+        # 由于模型包含冻结的cam_model等组件，deepcopy不可靠
+        # 始终使用创建新实例+复制state_dict的方式
+        device = next(model.parameters()).device
+        from models.skelvit import SKELViT
+        self.model = SKELViT(cfg)
+        self.model.to(device)
+        # 复制模型权重
+        self.model.load_state_dict(model.state_dict(), strict=False)
+        self.model.eval()
+        print(f"EMA model created successfully (device: {device})")
+        
         self.register_buffer("updates", torch.tensor(updates, dtype=torch.long))
         self._decay_base = cfg.trainer.ema_decaybase
 

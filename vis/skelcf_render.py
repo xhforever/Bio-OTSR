@@ -64,11 +64,17 @@ class SKELCFRender(nn.Module):
     def get_trainable_parameters(self):
         return list(self.backbone.parameters()) + list(self.decoder.parameters())
 
-    def forward_step(self, x, batch):
+    def forward_step(self, x, batch, return_vit_layers=False):
       
         B = x.shape[0]
         # B, 192, 1280
-        x_norm_patch = self.backbone(x[:, :, :, 32:-32])    
+        if return_vit_layers:
+            # 返回所有中间层特征用于可视化
+            x_norm_patch, vit_intermediate = self.backbone(x[:, :, :, 32:-32], return_intermediate=True)
+        else:
+            x_norm_patch = self.backbone(x[:, :, :, 32:-32])
+            vit_intermediate = None
+            
         cam_int, bbox_info = self.get_cam_intrinsic(batch)
         # x_cls = x_norm_patch[:, 0, :]
         # B, 1280
@@ -76,6 +82,11 @@ class SKELCFRender(nn.Module):
         # enc_poses ... / dec_poses
         outputs = self.decoder(x_cls, 
                             x_norm_patch=x_norm_patch, bbox_info=bbox_info)
+        
+        # 返回 ViT 特征用于可视化
+        outputs['vit_features'] = x_norm_patch
+        if return_vit_layers:
+            outputs['vit_intermediate_layers'] = vit_intermediate
          
         return outputs, cam_int
 
@@ -117,14 +128,22 @@ class SKELCFRender(nn.Module):
         return total_predict
     
 
-    def forward(self, batch):
+    def forward(self, batch, return_vit_layers=False):
         img_patch = batch['img']  # (B, C, H, W)
 
-        outputs, cam_int = self.forward_step(img_patch, batch)  # {...}
+        outputs, cam_int = self.forward_step(img_patch, batch, return_vit_layers=return_vit_layers)  # {...}
         predict_enc = self.get_pd_params(outputs['pd_enc_poses'], outputs['pd_enc_betas'], outputs['pd_enc_cam'], batch)
         predict_dec = self.get_pd_params(outputs['pd_dec_poses'], outputs['pd_dec_betas'], outputs['pd_dec_cam'], batch)
         # for vis
         per_layer_params = outputs['per_layer_params']
         
-        return predict_enc, predict_dec, per_layer_params
+        # 返回 ViT 特征用于可视化
+        vit_features = outputs.get('vit_features', None)
+        vit_layers = outputs.get('vit_intermediate_layers', None)
+        
+        # 返回 Decoder 每层特征和attention用于可视化
+        decoder_features = outputs.get('per_layer_features', None)
+        decoder_attentions = outputs.get('per_layer_attentions', None)
+        
+        return predict_enc, predict_dec, per_layer_params, vit_features, vit_layers, decoder_features, decoder_attentions
 

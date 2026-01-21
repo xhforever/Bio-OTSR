@@ -29,6 +29,7 @@ class ColorPalette:
         'pink'         : '#e6cde3',
         'light_pink'   : '#fdeff2',
         'blue'         : '#89c3eb',
+        'light_blue'   : '#a0d8ef',
         'purple'       : '#a6a5c4',
         'light_purple' : '#bbc8e6',
         'red'          : '#d3381c',
@@ -38,6 +39,10 @@ class ColorPalette:
         'human_yellow' : '#f1bf99',
         'orange_red'   : '#FF7F50',
         'green'        : '#a8c97f',
+        'light_green'  : '#c8d5bb',
+        'cyan'         : '#7ecef4',
+        'magenta'      : '#c97586',
+        'teal'         : '#7ebea5',
     }
 
     presets_int8 = {k: hex_to_int8(v) for k, v in presets.items()}

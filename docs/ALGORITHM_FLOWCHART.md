@@ -20,43 +20,43 @@
 
 ```mermaid
 flowchart TB
-    Start([输入图像 I ∈ ℝ^(H×W×3)]) --> Preprocessing[图像预处理]
+    Start([输入图像<br/>HxWx3]) --> Preprocessing[图像预处理]
     
-    Preprocessing --> Crop["裁剪与归一化<br/>I' ∈ ℝ^(256×192×3)"]
+    Preprocessing --> Crop["裁剪与归一化<br/>256x192x3"]
     
     Crop --> Encoder["视觉编码器<br/>ViT-H Backbone"]
     
-    Encoder --> FeatureExtraction["特征提取<br/>F ∈ ℝ^(B×N×D)<br/>N=192, D=1280"]
+    Encoder --> FeatureExtraction["特征提取<br/>BxNxD<br/>N=192, D=1280"]
     
     FeatureExtraction --> FeatureSplit{特征分离}
     
-    FeatureSplit --> GlobalFeature["全局特征<br/>f_global = MeanPool(F)<br/>∈ ℝ^(B×D)"]
+    FeatureSplit --> GlobalFeature["全局特征<br/>f_global = MeanPool<br/>维度: BxD"]
     
-    FeatureSplit --> SpatialFeature["空间特征<br/>F_spatial ∈ ℝ^(B×N×D)"]
+    FeatureSplit --> SpatialFeature["空间特征<br/>F_spatial<br/>维度: BxNxD"]
     
-    GlobalFeature --> Initialization["参数初始化<br/>θ₀, β₀, c₀"]
+    GlobalFeature --> Initialization["参数初始化<br/>theta0, beta0, cam0"]
     
-    Initialization --> GeometricInit["几何特征初始化<br/>X₀ ∈ ℝ^(24×3) (Swing)<br/>O₀ ∈ ℝ^(6×3) (Twist)<br/>S₀ ∈ ℝ^32 (Scalar)"]
+    Initialization --> GeometricInit["几何特征初始化<br/>X0: Bx24x3 Swing<br/>O0: Bx6x3 Twist<br/>S0: Bx32 Scalar"]
     
-    GeometricInit --> Decoder["Transformer Decoder<br/>迭代精化 (L=6层)"]
+    GeometricInit --> Decoder["Transformer Decoder<br/>迭代精化 L=6层"]
     
     SpatialFeature --> Decoder
     
-    Decoder --> IterativeRefinement["迭代更新<br/>Xₗ = Xₗ₋₁ + ΔXₗ<br/>Oₗ = Oₗ₋₁ + ΔOₗ<br/>Sₗ = Sₗ₋₁ + ΔSₗ"]
+    Decoder --> IterativeRefinement["迭代更新<br/>X_l = X_l-1 + DeltaX<br/>O_l = O_l-1 + DeltaO<br/>S_l = S_l-1 + DeltaS"]
     
     IterativeRefinement --> BioOTSR["Bio-OTSR求解器<br/>正交分解求解"]
     
-    BioOTSR --> PoseParams["姿态参数<br/>θ ∈ ℝ^46"]
+    BioOTSR --> PoseParams["姿态参数<br/>theta: Bx46"]
     
-    PoseParams --> SKELLayer["SKEL参数化人体模型<br/>Ψ(θ, β)"]
+    PoseParams --> SKELLayer["SKEL参数化人体模型<br/>Forward Kinematics"]
     
     SKELLayer --> OutputGeneration["生成输出"]
     
-    OutputGeneration --> Joints3D["3D关节<br/>J ∈ ℝ^(44×3)"]
-    OutputGeneration --> Vertices["皮肤顶点<br/>V ∈ ℝ^(6890×3)"]
-    OutputGeneration --> Joints2D["2D投影<br/>j ∈ ℝ^(44×2)"]
+    OutputGeneration --> Joints3D["3D关节<br/>J: Bx44x3"]
+    OutputGeneration --> Vertices["皮肤顶点<br/>V: Bx6890x3"]
+    OutputGeneration --> Joints2D["2D投影<br/>j: Bx44x2"]
     
-    Joints3D --> LossComputation["损失计算<br/>ℒ_total"]
+    Joints3D --> LossComputation["损失计算<br/>Loss_total"]
     Vertices --> LossComputation
     Joints2D --> LossComputation
     
@@ -81,12 +81,12 @@ flowchart TB
     
     BuildModel --> Components{模型组件}
     
-    Components --> Backbone["Backbone: φ_enc<br/>ViT-H (预训练权重)"]
-    Components --> DecoderHead["Decoder: φ_dec<br/>6层Transformer"]
-    Components --> CameraModel["相机模型: φ_cam<br/>FLNet (冻结)"]
-    Components --> BodyModel["人体模型: Ψ<br/>SKEL Wrapper"]
+    Components --> Backbone["Backbone: phi_enc<br/>ViT-H 预训练权重"]
+    Components --> DecoderHead["Decoder: phi_dec<br/>6层Transformer"]
+    Components --> CameraModel["相机模型: phi_cam<br/>FLNet 冻结"]
+    Components --> BodyModel["人体模型: Psi<br/>SKEL Wrapper"]
     
-    Backbone --> LoadData["加载训练数据<br/>𝒟_train"]
+    Backbone --> LoadData["加载训练数据<br/>D_train"]
     DecoderHead --> LoadData
     CameraModel --> LoadData
     BodyModel --> LoadData
@@ -95,23 +95,23 @@ flowchart TB
     
     DatasetInfo --> BuildOptimizer["构建优化器<br/>AdamW(lr=1e-4, wd=1e-4)"]
     
-    BuildOptimizer --> BuildEMA["构建EMA模型<br/>M_ema, τ=0.999"]
+    BuildOptimizer --> BuildEMA["构建EMA模型<br/>M_ema, tau=0.999"]
     
-    BuildEMA --> EpochLoop{Epoch循环<br/>e = 1...E}
+    BuildEMA --> EpochLoop{Epoch循环<br/>e = 1 to E}
     
     EpochLoop --> BatchLoop["批次循环<br/>b ∈ 𝒟_train"]
     
-    BatchLoop --> ForwardPass["前向传播<br/>ŷ = M(x_b)"]
+    BatchLoop --> ForwardPass["前向传播<br/>y_hat = M x_b"]
     
-    ForwardPass --> ComputeLoss["计算损失<br/>ℒ(ŷ, y_b)"]
+    ForwardPass --> ComputeLoss["计算损失<br/>Loss y_hat, y_b"]
     
-    ComputeLoss --> BackwardPass["反向传播<br/>∇_θ ℒ"]
+    ComputeLoss --> BackwardPass["反向传播<br/>grad_theta Loss"]
     
-    BackwardPass --> GradClip["梯度裁剪<br/>clip_grad_norm(θ, max=1.0)"]
+    BackwardPass --> GradClip["梯度裁剪<br/>clip_grad_norm max=1.0"]
     
-    GradClip --> OptimizerStep["优化器更新<br/>θ ← θ - α∇_θℒ"]
+    GradClip --> OptimizerStep["优化器更新<br/>theta = theta - lr*grad"]
     
-    OptimizerStep --> UpdateEMA["更新EMA<br/>θ_ema ← τθ_ema + (1-τ)θ"]
+    OptimizerStep --> UpdateEMA["更新EMA<br/>theta_ema更新"]
     
     UpdateEMA --> CheckLog{是否记录?<br/>step mod N = 0}
     
@@ -125,7 +125,7 @@ flowchart TB
     
     EvalPhase --> EvalMetrics["计算指标<br/>MPJPE, PA-MPJPE, PVE"]
     
-    EvalMetrics --> CheckBest{PVE < PVE_best?}
+    EvalMetrics --> CheckBest{PVE小于PVE_best?}
     
     CheckBest -->|是| SaveBest["保存最佳模型<br/>best.pth"]
     CheckBest -->|否| CheckContinue{继续训练?}
@@ -149,28 +149,28 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    Input["输入: 图像 I ∈ ℝ^(B×3×H×W)"] --> PatchEmbed["Patch Embedding<br/>切分为patches"]
+    Input["输入图像<br/>Bx3xHxW"] --> PatchEmbed["Patch Embedding<br/>切分为patches"]
     
-    PatchEmbed --> AddPosEmb["添加位置编码<br/>F₀ = PatchEmbed(I) + E_pos"]
+    PatchEmbed --> AddPosEmb["添加位置编码<br/>F0 = PatchEmbed + E_pos"]
     
-    AddPosEmb --> ViTBlocks["ViT编码器 (12层)<br/>for l=1...12:<br/>F_l = TransformerBlock(F_(l-1))"]
+    AddPosEmb --> ViTBlocks["ViT编码器 12层<br/>for l=1 to 12<br/>F_l = TransformerBlock"]
     
-    ViTBlocks --> ExtractFeatures["提取特征<br/>F_out ∈ ℝ^(B×192×1280)"]
+    ViTBlocks --> ExtractFeatures["提取特征<br/>F_out: Bx192x1280"]
     
-    ExtractFeatures --> MeanPool["全局特征提取<br/>f_g = 1/N ∑ᵢ F_out[:,i,:]"]
+    ExtractFeatures --> MeanPool["全局特征提取<br/>f_g = MeanPool F_out"]
     
     MeanPool --> InitPredict["初始预测"]
     
-    InitPredict --> InitGeometric["几何特征初始化<br/>X₀ = MLP_xyz(f_g)<br/>O₀ = MLP_ortho(f_g)<br/>S₀ = MLP_scalar(f_g)"]
+    InitPredict --> InitGeometric["几何特征初始化<br/>X0 = MLP_xyz f_g<br/>O0 = MLP_ortho f_g<br/>S0 = MLP_scalar f_g"]
     
-    InitPredict --> InitShape["形状&相机初始化<br/>β₀ = MLP_β(f_g) + β_mean<br/>c₀ = MLP_cam(f_g) + c_mean"]
+    InitPredict --> InitShape["形状相机初始化<br/>beta0 = MLP_beta + mean<br/>c0 = MLP_cam + mean"]
     
-    InitGeometric --> TokenEmbed["Token嵌入<br/>T₀ = [T_pose; T_β; T_cam]"]
+    InitGeometric --> TokenEmbed["Token嵌入<br/>T0 = concat tokens"]
     InitShape --> TokenEmbed
     
-    TokenEmbed --> AddPosToken["添加位置编码<br/>T₀ = T₀ + E_pos_token"]
+    TokenEmbed --> AddPosToken["添加位置编码<br/>T0 = T0 + E_pos_token"]
     
-    AddPosToken --> DecoderLoop["Decoder循环 (L=6)"]
+    AddPosToken --> DecoderLoop["Decoder循环 L=6"]
     
     ExtractFeatures --> ContextFeature["上下文特征<br/>C = F_out"]
     
@@ -178,32 +178,32 @@ flowchart TB
     
     DecoderLoop --> Layer1["Layer l=1"]
     
-    Layer1 --> SelfAttn["自注意力<br/>T̃_l = SelfAttn(T_(l-1)) + T_(l-1)"]
+    Layer1 --> SelfAttn["自注意力<br/>T_l = SelfAttn + residual"]
     
-    SelfAttn --> CrossAttn["交叉注意力<br/>T̂_l = CrossAttn(T̃_l, C) + T̃_l"]
+    SelfAttn --> CrossAttn["交叉注意力<br/>T_l = CrossAttn C + residual"]
     
-    CrossAttn --> FFN["前馈网络<br/>T_l = FFN(T̂_l) + T̂_l"]
+    CrossAttn --> FFN["前馈网络<br/>T_l = FFN + residual"]
     
-    FFN --> UpdateGeometry["更新几何特征<br/>ΔX_l = MLP_xyz(T_l[0])<br/>ΔO_l = MLP_ortho(T_l[0])<br/>ΔS_l = MLP_scalar(T_l[0])"]
+    FFN --> UpdateGeometry["更新几何特征<br/>DeltaX_l = MLP_xyz<br/>DeltaO_l = MLP_ortho<br/>DeltaS_l = MLP_scalar"]
     
-    UpdateGeometry --> ResidualUpdate["残差更新<br/>X_l = X_(l-1) + ΔX_l<br/>O_l = O_(l-1) + ΔO_l<br/>S_l = S_(l-1) + ΔS_l"]
+    UpdateGeometry --> ResidualUpdate["残差更新<br/>X_l = X_l-1 + DeltaX<br/>O_l = O_l-1 + DeltaO<br/>S_l = S_l-1 + DeltaS"]
     
-    ResidualUpdate --> UpdateShapeCam["更新形状和相机<br/>Δβ_l = MLP_β(T_l[1])<br/>Δc_l = MLP_cam(T_l[2])<br/>β_l = β_(l-1) + Δβ_l<br/>c_l = c_(l-1) + Δc_l"]
+    ResidualUpdate --> UpdateShapeCam["更新形状和相机<br/>beta_l = beta_l-1 + Delta<br/>c_l = c_l-1 + Delta"]
     
-    UpdateShapeCam --> CheckLayer{l < L?}
+    UpdateShapeCam --> CheckLayer{l小于L?}
     
-    CheckLayer -->|是| NextLayer["l ← l + 1"]
+    CheckLayer -->|是| NextLayer["l = l + 1"]
     NextLayer --> SelfAttn
     
-    CheckLayer -->|否| FinalFeatures["最终特征<br/>X_L, O_L, S_L, β_L, c_L"]
+    CheckLayer -->|否| FinalFeatures["最终特征<br/>X_L O_L S_L beta_L c_L"]
     
-    FinalFeatures --> BioOTSRSolver["Bio-OTSR求解<br/>θ = Solver(X_L, O_L, S_L)"]
+    FinalFeatures --> BioOTSRSolver["Bio-OTSR求解<br/>theta = Solver X O S"]
     
-    BioOTSRSolver --> SKELForward["SKEL正向运动学<br/>(J, V) = Ψ(θ, β_L)"]
+    BioOTSRSolver --> SKELForward["SKEL正向运动学<br/>J V = SKEL theta beta"]
     
-    SKELForward --> ProjectTo2D["透视投影<br/>j = π(J, c_L, K)"]
+    SKELForward --> ProjectTo2D["透视投影<br/>j = Project J c K"]
     
-    ProjectTo2D --> Output["输出<br/>J ∈ ℝ^(44×3)<br/>V ∈ ℝ^(6890×3)<br/>j ∈ ℝ^(44×2)<br/>θ ∈ ℝ^46<br/>β ∈ ℝ^10"]
+    ProjectTo2D --> Output["输出<br/>J: Bx44x3<br/>V: Bx6890x3<br/>j: Bx44x2<br/>theta: Bx46<br/>beta: Bx10"]
     
     style ViTBlocks fill:#e3f2fd
     style DecoderLoop fill:#fff3e0
@@ -524,19 +524,19 @@ $$
 
 ```mermaid
 flowchart TB
-    TotalLoss["总损失 ℒ_total"] --> EncLoss["编码器损失 ℒ_enc"]
-    TotalLoss --> DecLoss["解码器损失 ℒ_dec"]
-    TotalLoss --> AuxLoss["辅助损失 ℒ_aux"]
-    TotalLoss --> GeoLoss["几何损失 ℒ_geo"]
+    TotalLoss["总损失 Loss_total"] --> EncLoss["编码器损失 Loss_enc"]
+    TotalLoss --> DecLoss["解码器损失 Loss_dec"]
+    TotalLoss --> AuxLoss["辅助损失 Loss_aux"]
+    TotalLoss --> GeoLoss["几何损失 Loss_geo"]
     
-    DecLoss --> L2D["2D关键点损失<br/>ℒ_kp2d"]
-    DecLoss --> L3D["3D关键点损失<br/>ℒ_kp3d"]
-    DecLoss --> LPose["姿态损失<br/>ℒ_pose"]
-    DecLoss --> LBeta["形状损失<br/>ℒ_β"]
+    DecLoss --> L2D["2D关键点损失<br/>Loss_kp2d"]
+    DecLoss --> L3D["3D关键点损失<br/>Loss_kp3d"]
+    DecLoss --> LPose["姿态损失<br/>Loss_pose"]
+    DecLoss --> LBeta["形状损失<br/>Loss_beta"]
     
-    GeoLoss --> LSwing["Swing损失<br/>ℒ_swing"]
-    GeoLoss --> LTwist["Twist损失<br/>ℒ_twist"]
-    GeoLoss --> LScalar["Scalar损失<br/>ℒ_scalar"]
+    GeoLoss --> LSwing["Swing损失<br/>Loss_swing"]
+    GeoLoss --> LTwist["Twist损失<br/>Loss_twist"]
+    GeoLoss --> LScalar["Scalar损失<br/>Loss_scalar"]
     
     style TotalLoss fill:#ff9999
     style DecLoss fill:#ffebee
@@ -674,17 +674,17 @@ $$
 
 ```mermaid
 flowchart LR
-    Gradient["计算梯度<br/>g_t = ∇_θ ℒ"] --> Clip["梯度裁剪<br/>g_t ← clip(g_t, max_norm=1.0)"]
+    Gradient["计算梯度<br/>grad_t = grad Loss"] --> Clip["梯度裁剪<br/>clip grad max_norm=1.0"]
     
-    Clip --> Moment1["一阶矩估计<br/>m_t = β₁m_(t-1) + (1-β₁)g_t"]
-    Clip --> Moment2["二阶矩估计<br/>v_t = β₂v_(t-1) + (1-β₂)g_t²"]
+    Clip --> Moment1["一阶矩估计<br/>m_t = beta1*m + grad"]
+    Clip --> Moment2["二阶矩估计<br/>v_t = beta2*v + grad^2"]
     
-    Moment1 --> BiasCorrect["偏差校正<br/>m̂_t = m_t/(1-β₁^t)<br/>v̂_t = v_t/(1-β₂^t)"]
+    Moment1 --> BiasCorrect["偏差校正<br/>m_hat = m_t / 1-beta1^t<br/>v_hat = v_t / 1-beta2^t"]
     Moment2 --> BiasCorrect
     
-    BiasCorrect --> WeightDecay["权重衰减<br/>θ_t = θ_(t-1) - λ_wd·θ_(t-1)"]
+    BiasCorrect --> WeightDecay["权重衰减<br/>theta = theta - wd*theta"]
     
-    WeightDecay --> Update["参数更新<br/>θ_t = θ_t - α·m̂_t/(√v̂_t + ε)"]
+    WeightDecay --> Update["参数更新<br/>theta = theta - lr*m_hat"]
     
     style Moment1 fill:#e3f2fd
     style Moment2 fill:#e3f2fd
@@ -823,11 +823,11 @@ flowchart TB
     
     ModelInference --> ForEachBatch["批次循环"]
     
-    ForEachBatch --> InferBatch["推理<br/>ŷ = M(x)"]
+    ForEachBatch --> InferBatch["推理<br/>y_hat = M x"]
     
     InferBatch --> AlignPrediction["对齐预测"]
     
-    AlignPrediction --> RootAlign["Root对齐<br/>J̃ = J - J[pelvis]"]
+    AlignPrediction --> RootAlign["Root对齐<br/>J_align = J - J pelvis"]
     
     RootAlign --> ComputeMetrics["计算指标"]
     
@@ -945,25 +945,25 @@ $$
 
 ```mermaid
 flowchart LR
-    I["图像 I<br/>B×3×256×256"] --> Crop["裁剪<br/>B×3×256×192"]
+    I["图像 I<br/>Bx3x256x256"] --> Crop["裁剪<br/>Bx3x256x192"]
     
-    Crop --> Patches["Patches<br/>B×192×1280"]
+    Crop --> Patches["Patches<br/>Bx192x1280"]
     
-    Patches --> FG["全局特征<br/>B×1280"]
-    Patches --> FS["空间特征<br/>B×192×1280"]
+    Patches --> FG["全局特征<br/>Bx1280"]
+    Patches --> FS["空间特征<br/>Bx192x1280"]
     
-    FG --> Init["初始参数<br/>X₀: B×24×3<br/>O₀: B×6×3<br/>S₀: B×32<br/>β₀: B×10<br/>c₀: B×3"]
+    FG --> Init["初始参数<br/>X0: Bx24x3<br/>O0: Bx6x3<br/>S0: Bx32<br/>beta0: Bx10<br/>c0: Bx3"]
     
-    Init --> Tokens["Tokens<br/>B×3×1024"]
+    Init --> Tokens["Tokens<br/>Bx3x1024"]
     FS --> Tokens
     
-    Tokens --> DecoderOut["Decoder输出<br/>X_L: B×24×3<br/>O_L: B×6×3<br/>S_L: B×32<br/>β_L: B×10<br/>c_L: B×3"]
+    Tokens --> DecoderOut["Decoder输出<br/>X_L: Bx24x3<br/>O_L: Bx6x3<br/>S_L: Bx32<br/>beta_L: Bx10<br/>c_L: Bx3"]
     
-    DecoderOut --> Solver["Bio-OTSR<br/>θ: B×46"]
+    DecoderOut --> Solver["Bio-OTSR<br/>theta: Bx46"]
     
-    Solver --> SKEL["SKEL模型<br/>J: B×44×3<br/>V: B×6890×3"]
+    Solver --> SKEL["SKEL模型<br/>J: Bx44x3<br/>V: Bx6890x3"]
     
-    SKEL --> Proj["透视投影<br/>j: B×44×2"]
+    SKEL --> Proj["透视投影<br/>j: Bx44x2"]
     
     style I fill:#ffebee
     style Patches fill:#e3f2fd

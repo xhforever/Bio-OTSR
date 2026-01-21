@@ -1,0 +1,11 @@
+[[36m01/20 10:16:18[0m][[33mWARNING[0m] ExpOven is not installed. Will not be able to use the oven related functions. Check https://github.com/IsshikiHugh/ExpOven for more information.[0m
+/home/yangxianghao/miniconda3/envs/skelvit/lib/python3.10/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+usage: run_test.py [--help] [--hydra-help] [--version] [--cfg {job,hydra,all}]
+                   [--resolve] [--package PACKAGE] [--run] [--multirun]
+                   [--shell-completion] [--config-path CONFIG_PATH]
+                   [--config-name CONFIG_NAME] [--config-dir CONFIG_DIR]
+                   [--experimental-rerun EXPERIMENTAL_RERUN]
+                   [--info [{all,config,defaults,defaults-tree,plugins,searchpath}]]
+                   [overrides ...]
+run_test.py: error: unrecognized arguments: --checkpoint --output debug_output_after_fix

@@ -35,11 +35,13 @@ class SKELViT(nn.Module):
         # SKEL_wrapper 
         
         self.cfg = cfg
+        self.skel_model = SKELWrapper(**cfg.hub.body_models.skel_mix_hsmr)
+
         self.backbone = self.setup_backbone()
         # setup the decoder, take pose_init after encoder as input
         self.decoder = self.setup_head()
         self.cam_model = self.setup_cam_model()
-        self.skel_model = SKELWrapper(**cfg.hub.body_models.skel_mix_hsmr)
+        # self.skel_model = SKELWrapper(**cfg.hub.body_models.skel_mix_hsmr)
 
     def setup_cam_model(self):
 
@@ -72,7 +74,7 @@ class SKELViT(nn.Module):
 
     def setup_head(self):
        
-        skel_head = SKELTransformerDecoderHeadBase(cfg=self.cfg)
+        skel_head = SKELTransformerDecoderHeadBase(cfg=self.cfg, skel_model=self.skel_model)
         logger.info('SKEL Transformer decoder head initialized !')
 
         return skel_head
